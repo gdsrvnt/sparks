@@ -1,0 +1,56 @@
+name: archagents-mention
+
+# Forwards GitHub events to the Grok Bot webhook when GoddyB mentions @ArchAgents.
+# commit_comment is not a supported Actions trigger, so commit comments are not covered.
+# Uses pull_request_target so secrets are available; PR code is never checked out.
+
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
+  pull_request_target:
+    types: [opened, edited]
+  pull_request_review:
+    types: [submitted]
+  pull_request_review_comment:
+    types: [created]
+  discussion:
+    types: [created, edited]
+  discussion_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+jobs:
+  forward:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    if: >-
+      github.actor == 'GoddyB' && (
+        (github.event_name == 'issues' && (contains(github.event.issue.body, '@ArchAgents') || contains(github.event.issue.title, '@ArchAgents'))) ||
+        (github.event_name == 'pull_request_target' && (contains(github.event.pull_request.body, '@ArchAgents') || contains(github.event.pull_request.title, '@ArchAgents'))) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@ArchAgents')) ||
+        (github.event_name == 'discussion' && (contains(github.event.discussion.body, '@ArchAgents') || contains(github.event.discussion.title, '@ArchAgents'))) ||
+        ((github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment' || github.event_name == 'discussion_comment') && contains(github.event.comment.body, '@ArchAgents'))
+      )
+    steps:
+      - name: Forward event to webhook
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WEBHOOK_URL: ${{ secrets.GROKBOT_WEBHOOK_URL }}
+          WEBHOOK_KEY: ${{ secrets.GROKBOT_WEBHOOK_KEY }}
+          WEBHOOK_HEADER: ${{ secrets.GROKBOT_WEBHOOK_HEADER }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WEBHOOK_URL}" ] || [ -z "${WEBHOOK_KEY}" ] || [ -z "${WEBHOOK_HEADER}" ]; then
+            echo "::error::GROKBOT_WEBHOOK_URL, GROKBOT_WEBHOOK_KEY and GROKBOT_WEBHOOK_HEADER must all be set"
+            exit 1
+          fi
+          jq -n --arg event_name "$EVENT_NAME" --slurpfile payload "$GITHUB_EVENT_PATH" \
+            '{event_name: $event_name, payload: $payload[0]}' > "$RUNNER_TEMP/body.json"
+          curl --fail-with-body -sS -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -H "${WEBHOOK_HEADER}: ${WEBHOOK_KEY}" \
+            --data-binary "@$RUNNER_TEMP/body.json"
