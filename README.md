@@ -72,7 +72,7 @@ Spark already fixes this by distilling context only in the verbatim prose of hum
 
 Spark is very difficult to use at first. This is because it requires the human either to type long and detailed responses, or the human must dictate those responses in a fashion that is expressive, unambiguous, detailed, formal, and correct. Whereas currently, most workflows and working styles that incorporate dictation lean on the dictation software itself to clean disfluencies, and some of them even go so far as to write the dictation completely, which again is doubly degenerate on top of the degeneracy that has already been discussed, which arises from the current paradigms of context engineering in the first place.
 
-At the end of the day, the entire point of context engineering is to preserve human intent in codebases, projects, and other workspaces. However, human intent is not more clearly expressed anywhere than in the verbatim words of human beings themselves. And thus, by demanding from the human being, or at the very least, making it highly profitable for the human being to better express intent in prose, and then using that prose to guide any project or codebase, Spark gives all teams, projects, and codebases the avenues to improve linearly and predictably, infinitely, with time, provided that the skill set Spark requires is honed. Luckily, the very skill set Spark requires today, to the exclusion of most other paradigms, will tomorrow be the expectation and most universally prized and desirable skill for most professionals working with agents.
+At the end of the day, the entire point of context engineering is to preserve human intent in codebases, projects, and other workspaces. However, human intent is not more clearly expressed anywhere than in the verbatim words of human beings themselves. And thus, by demanding from the human being, or at the very least, making it highly advantageous for the human being to better express intent in prose, and then using that prose to guide any project or codebase, Spark gives teams the avenues to improve compoundly with time, provided that the skill set Spark requires is honed. Luckily, the very skill set Spark requires today, to the exclusion of most other paradigms, will tomorrow be the expectation and most universally prized and desirable skill for most professionals working with agents.
 
 ## How Spark works
 
@@ -82,7 +82,9 @@ By grouping context into categories and question answer pairs, it makes it easie
 
 Spark files represent context as question and answer pairs. The question can be asked by an agent or seeded by a human to encode even more intent.
 
-sparks.json files in any directory apply globally to a project by default. The user decides if and how to scope them.
+I believe that intent can be encoded more strongly in prose that takes it as assumption than prose that asserts it. And so, for example, instead of saying what are the things that never should be done when resolving merge conflict, and then answering it in human prose, and thereby using the question mainly as a dumb marker for that piece of information, Spark wants teams to do things like say, why is insert name of practice here always avoided in this repository when resolving merge conflicts? And then in the answer, human prose expressed in the most poignant way possible about exactly why. And thus, Spark, by encouraging the encoding of context using QA pairs like these in their hundreds and thousands, helps things to compress context and intent into vastly fewer tokens while requiring less SaaS services and context management plumbing.
+
+sparks.json files in any directory apply globally to a project by default. The user decides if and how to scope them for certain tasks.
 
 A sparks.json includes any number of entries, json objects with a type of "s", "p", "a", "r", or "k".
 
@@ -90,18 +92,18 @@ A sparks.json includes any number of entries, json objects with a type of "s", "
 
 #### S: Stack
 
-The S stands for stack, and Spark entries of type S address the actual stack constituents, the tooling, the dependencies, the build pipelines, the production infrastructure, and other things pertaining to the plumbing and the nuts and bolts of the project itself; they answer architecture questions too. They're question answer pairs relating to the stack of the project. Again, optional.
+The S stands for stack and implementation, and Spark entries of type S address the actual stack constituents, the tooling, the dependencies, the build pipelines, the production infrastructure, and other things pertaining to the plumbing and the nuts and bolts of the project itself; they answer architecture questions too. They're question answer pairs relating to the stack of the project. Again, optional.
 
 
-#### P: Productization
+#### P: Purpose and presentation
 
-Everything that is created is created for a purpose and is intended to have some effect on those perceive or use it. The P, which stands for productization, is the subset of spark entries that answer questions about the image that the project is meant to have. The shape that it expresses to the world and or the effect and appearance that it should have on the public and those who see it. The P entries should also answer exactly who it is who will observe this in production and how they are meant to feel about it. Like with every other type of spark entity, the question answer pairs need not only pertain to the desired production shape, but also may pertain to what should not be the shape and what sentiments and impressions should the product or project not leave on those who observe it. Furthermore, it should answer questions about who it is that this project will be marketed to. Who is it that will be told about this project? Who is it that cares about this project and will be judging something based on this project and its quality? And also, how is it that this project will be judged and perceived?
+Everything that is created is created for a purpose and is intended to have an effect on those who interact with it. The P, which stands for purpose and presentation, is the subset of spark entries that answer questions about the shape the project has and the physical space it takes up in the world. The shape that it expresses to the world and or the effect and appearance that it should have on the public and those who see it. The P entries should also answer exactly who it is who will observe this in production and how they feel about it. Like with every other type of spark entity, the question answer pairs need not only pertain to the desired production shape, but also may pertain to what should not be the shape and what sentiments and impressions should the product or project not leave on those who observe it. Furthermore, it should answer questions about who it is that this project will be marketed to. Who is it that will be told about this project? Who is it that cares about this project and will be judging something based on this project and its quality? And also, how is it that this project will be evaluated and perceived?
 
 How is this packaged, branded, presented and shipped? Why, when, who, where <all of those things>?
 
 #### A: Art and design
 
-This section, or rather, this type of entry is of course closely related to type Indeed, type A is the means by which the type P entries are achieved, and thus P informs A, and A necessarily has consequences for P. Because this is the type of entry most heavily influenced by taste of the team and nature of the project, it is also the one whose conventions are least strict, if it can be said that any of the entry types have conventions at all.
+This section, or rather, this type of entry is of course closely related to type P. Indeed, type A is the means by which the type P entries are achieved, and thus P informs A, and A necessarily has consequences for P. Because this is the type of entry most heavily influenced by taste of the team and nature of the project, it is also the one whose conventions are least strict, if it can be said that any of the entry types have conventions at all.
 
 In a sound engineering project, for example, the type A entries will include a lot of information about the desired vibe of the sound or beats that the project is producing. If, for example, it is a AI generation, AI generated music project that uses Suno, then things like the preferred BPMs for certain types of music may be encoded here, in addition to what types of instruments should and should not be used. On the other hand, if the project pertains to the backend of a big data pipeline, then there likely would not be very much to the A section at all. However, that is not to say that such a project would have no entries in A. It is simply to say that the entries in A are to be shaped by whatever it is the team or practitioner perceives as art in the first place. And since the very definition of art is subjective, whereas in other contexts the definition of a thing is not subjective, but what actually constitutes such a thing is subjective.
 
@@ -109,62 +111,19 @@ What exactly to include in A is not advised upon herein at all.
 
 Facts about the sensory footprint of the project.
 
-#### R: Risks and restrictions
+#### R: Reconnaissance and restrictions
 
 This type of entry addresses the hard do not dos of a project, and in addition, it includes admonitions about what to be weary of of the project. What to be weary of when working on the project that cannot be documented as a hard rule as such because there is no substrate for it to prohibit, but rather just things that should be avoided or certain patterns that are not desirable, or clear question answers about what is not or what things are not or what should not come to be.
 
+Reconnaissance is an ever-evolving subset of entities that tracks the changing topology of the niche or domain or science of the project, and stores bits of context that are both important and liable to change quickly, whether to the advantage of the project or to its detriment.
+
 #### K: Knowledge sources
 
-K is the last one. And K is one of the most powerful types of SPARK entry. K is knowledge sources. It doesn't just enumerate knowledge sources and leave the agent to do with them what it will. No. K is very useful because it allows a knowledge source to be assigned more than one job, but for that to be done very gracefully and depending on the question and the QA pair that holds a knowledge source. The agent will know how to query a particular knowledge source for a particular task at that particular moment in time. It will increase the accuracy of when agents pull context from non-SPARK sources, and it will also improve how agents query those sources once they get to them, which is way better than using index files, which most context management systems rely on right now.
+K is the last one. And K is one of the most powerful types of SPARK entry. K is knowledge sources. It doesn't just enumerate knowledge sources and leave the agent to do with them what it will. No. K is very useful because it allows a knowledge source to be assigned more than one job, but for that to be done very gracefully and depending on the question and the QA pair that holds a knowledge source. The agent knows how to query a particular knowledge source for a particular task at that particular moment in time. It increases the accuracy of when agents pull context from non-SPARK sources, and it also improves how agents query those sources once they get to them, which is way better than using index files, which most context management systems rely on right now.
 
 ### Five types of data
 
-Spark also helps to keep a project on the rails because it unironically does encompass the five things that are most important about project management. It's five types of data at large that together make up pretty much all the domains of data that a project needs to have.
-
-## Install
-
-Clone the repository.
-
-```bash
-git clone https://github.com/gdsrvnt/spark.git
-cd spark
-```
-
-### Dependencies
-
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/). uv installs a Python interpreter that satisfies the `requires-python` line in `spark_id.py`.
-
-## Usage
-
-### CLI
-
-From the repository root, check that every stored id matches its question and answer.
-
-```bash
-uv run spark_id.py spark.json
-```
-
-Exit code 0 and no output means the file matches. The sample record id is `107ee97d1abd8e36`.
-
-Check `spark.json` against `spark.schema.json`.
-
-```bash
-uvx check-jsonschema --schemafile spark.schema.json spark.json
-```
-
-Run the placeholder binary. It exits 0 and writes nothing.
-
-```bash
-bin/spark
-```
-
-The id rules and the `bin/spark` placeholder are in [Format](docs/format.md).
-
-## Contributing
-
-Questions go to [GitHub issues](https://github.com/gdsrvnt/spark/issues). Pull requests are accepted.
-
-Before you open a pull request, run both checks in Usage. When a record fails, fix the record. When the id rule changes, change `spark_id.py` in the same pull request.
+Spark also helps to keep a project on the rails because it encompasses the five things that are most important about project management. It's five types of data at large that together make up pretty much all the domains of data that a project needs to have.
 
 ## License
 
