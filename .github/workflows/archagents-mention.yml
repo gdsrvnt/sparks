@@ -39,13 +39,13 @@ jobs:
       - name: Forward event to webhook
         env:
           EVENT_NAME: ${{ github.event_name }}
-          WEBHOOK_URL: ${{ secrets.GROKBOT_WEBHOOK_URL }}
-          WEBHOOK_KEY: ${{ secrets.GROKBOT_WEBHOOK_KEY }}
-          WEBHOOK_HEADER: ${{ secrets.GROKBOT_WEBHOOK_HEADER }}
+          WEBHOOK_URL: ${{ secrets.MENTION_WEBHOOK_URL }}
+          WEBHOOK_KEY: ${{ secrets.MENTION_WEBHOOK_KEY }}
+          WEBHOOK_HEADER: ${{ secrets.MENTION_WEBHOOK_HEADER }}
         run: |
           set -euo pipefail
           if [ -z "${WEBHOOK_URL}" ] || [ -z "${WEBHOOK_KEY}" ] || [ -z "${WEBHOOK_HEADER}" ]; then
-            echo "::error::GROKBOT_WEBHOOK_URL, GROKBOT_WEBHOOK_KEY and GROKBOT_WEBHOOK_HEADER must all be set"
+            echo "::error::MENTION_WEBHOOK_URL, MENTION_WEBHOOK_KEY and MENTION_WEBHOOK_HEADER must all be set"
             exit 1
           fi
           jq -n --arg event_name "$EVENT_NAME" --slurpfile payload "$GITHUB_EVENT_PATH" \
