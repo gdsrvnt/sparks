@@ -26,7 +26,7 @@ Discovery uses the default folders. The manifest does not set custom component p
 
 | Component | Path | Status |
 | --- | --- | --- |
-| Skills | `skills/` | `study`, `grill-me`, and `ketchup`, `how`, `why`, `teach`, `bro` (from poteto's pstack, see `THIRD_PARTY_NOTICES.md`). |
+| Skills | `skills/` | `study`, `grill-me`, `ketchup`, `how`, `why`, `teach`, `bro` (from poteto's pstack), and `show-me` (from HumanLayer); see `THIRD_PARTY_NOTICES.md`. |
 | Rules | `rules/` | Not included. |
 | Agents | `agents/` | Not included. |
 | Commands | `commands/` | Not included. |
