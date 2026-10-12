@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Cursor plugin scaffold: `.cursor-plugin/plugin.json` at package version `0.0.0`, a reserved empty `skills/` directory, and a `LICENSE` file stating the SPDX identifier `UNLICENSED`.
+- Plugin package version stays `0.0.0` while skills are still absent. `[1.0.0]` below records the spark format, which is separate from the plugin package version.
+
 ## [1.0.0] - 2026-10-09
 
 ### Added
