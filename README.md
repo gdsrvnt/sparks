@@ -4,7 +4,7 @@
 
 ## How to use Spark
 
-Ideally, in a given directory, the sparks .json, the sparks file should hold question answer pairs that pertain to stack questions in that particular directory.
+Ideally, in a given directory, the sparks .json should hold question answer pairs that pertain to stack questions in that particular directory.
 
 ## Background
 
