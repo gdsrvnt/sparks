@@ -1,16 +1,13 @@
 {
   "name": "sparks",
   "displayName": "Sparks",
-  "version": "0.0.0",
-  "description": "Sparks: gather, maintain, and structure project context as Q&A pairs. Built for Grok Bot, usable in any harness.",
+  "version": "0.1.0",
+  "description": "Sparks: gather, maintain, and structure project context as Q&A pairs, with a study mode and thinking skills.",
   "author": {
     "name": "gdsrvnt"
   },
-  "publisher": "gdsrvnt",
   "homepage": "https://github.com/gdsrvnt/sparks",
   "repository": "https://github.com/gdsrvnt/sparks",
-  "license": "UNLICENSED",
-  "keywords": ["sparks", "context", "grokbot"],
-  "category": "developer-tools",
-  "tags": ["context", "qa"]
+  "license": "MIT",
+  "keywords": ["sparks", "context", "qa", "study"]
 }

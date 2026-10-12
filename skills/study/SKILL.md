@@ -1,11 +1,7 @@
 ---
-name: Study
+name: study
 description: Learning mode. Routes any learning task to one of ten learning-role playbooks and runs it. Use for /study, "study mode", or requests to learn, practice, review, or be tested on a subject or skill.
 disable-model-invocation: true
-mode: true
-icon: book
-color: green
-reminder: Learning turn? Playbook match -> apply /study. Casual turn or user opts out -> don't.
 ---
 
 # Study mode
@@ -22,7 +18,7 @@ reminder: Learning turn? Playbook match -> apply /study. Casual turn or user opt
 
 ## Playbooks
 
-Playbooks live in `.cursor/skills/spark/playbooks/`. Match the learner's moment to a playbook below and open its file. Open a todolist whose first items are that playbook's "How to play the role" steps, copied in verbatim, before any task-specific todos. A step you choose not to do stays in the list with a one-line `skip: <reason>`.
+Playbooks live in `playbooks/` next to this file. Match the learner's moment to a playbook below and open its file. Open a todolist whose first items are that playbook's "How to play the role" steps, copied in verbatim, before any task-specific todos. A step you choose not to do stays in the list with a one-line `skip: <reason>`.
 
 When the moment is unclear, route in this order. Goal or level unknown goes to Interviewer. Goal known but no plan goes to Mapmaker. Then pick by moment from the list.
 

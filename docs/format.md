@@ -4,7 +4,7 @@ Question and answer records with ids that any machine can recompute.
 
 Spark is for a person or an agent who keeps context in a file next to the code. Each record is one question and one answer. The id is the last 16 characters of a SHA-256 hash of one JSON object. That object holds the answer, the question, and the type, with keys in alphabetical order and no extra whitespace. Use Spark when the question and the answer identify the note, and the file may move between directories.
 
-The repository is named spark. The format is named Spark. This repository is the remaining copy. The earlier spark repositories were deleted.
+The repository is named sparks. The format is named Spark.
 
 `spark.json` is a JSON array. Each object has four keys.
 
@@ -19,8 +19,6 @@ The repository is named spark. The format is named Spark. This repository is the
 
 The same question and answer produce the same id on every machine. `connect` in `spark_id.py` unions records that `load` already returned. It does not walk a directory. The same id with a different question or answer is an error.
 
-`spark.schema.json` checks the array shape. The hash check stays in `spark_id.py`. The schema `$id` is `https://raw.githubusercontent.com/gdsrvnt/spark/main/spark.schema.json`.
+`spark.schema.json` checks the array shape. The hash check stays in `spark_id.py`. The schema `$id` is `https://raw.githubusercontent.com/gdsrvnt/sparks/main/spark.schema.json`.
 
 `bin/spark` is a placeholder. It has no features.
-
-`SKILL.md` is an agent skill that uses the name SPARK. That file is not a `spark.json` record.
