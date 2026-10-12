@@ -158,6 +158,11 @@ K is the last one. And K is one of the most powerful types of SPARK entry. K is 
 
 Spark also helps to keep a project on the rails because it encompasses the five things that are most important about project management. It's five types of data at large that together make up pretty much all the domains of data that a project needs to have.
 
+## Credits
+
+- [@poteto](https://github.com/poteto)
+- [@mattpocock](https://github.com/mattpocock), whose `grilling` skill is the basis for the `grill-me` skill in this plugin
+
 ## License
 
 License: not yet chosen.
