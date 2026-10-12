@@ -4,7 +4,7 @@
 
 ## How to use Spark
 
-Ideally, in a given directory, the sparks .json, the sparks file should hold question answer pairs that pertain to stack questions in that particular directory.
+Ideally, in a given directory, the sparks .json should hold question answer pairs that pertain to stack questions in that particular directory.
 
 ## Background
 
@@ -22,9 +22,9 @@ One of the shortcomings of current approaches to context management is that the 
 
 2. The assumptions and understandings underpinning the assertions themselves are typically not preserved by agents when creating or maintaining docs because *agents care more about what is than how it became*.
 
-   and thus, even if the human practitioner encodes the rationale for certain facts into their communication of those facts to an agent, the agent typically strips them from the final product, and because it is rare that humans review that final project, since they instead prefer to rely on their skills, framework, model, harness, and workflow, those facts are not only lost, but worse yet, it is rarely detected that the facts are lost until it is too late. Then invariably, the human comes back, and the model makes an error, or some other agent makes an error further down the line, and wonders why it is that the agent did not behave in the desirable fashion.
+   and thus, even if the human practitioner encodes the rationale for certain facts into their communication of those facts to an agent, the agent typically strips them from the final product, and because it is rare that humans review that final product, since they instead prefer to rely on their skills, framework, model, harness, and workflow, those facts are not only lost, but worse yet, it is rarely detected that the facts are lost until it is too late. And then, invariably, some agent makes an error down the line. Then the human comes back and wonders why it is that the agent did not behave in the desirable fashion.
 
-This is problematic because the same state in two projects, if a change needs to be made, are not treated the same by each team if the paths to that same state were radically different.
+This is problematic because the same state in two projects, if a change needs to be made, are not treated the same by each team if the paths to that same state were radically different, and this changes the desirable behavior of agents in each project.
 
 > Understanding how things came to be the way that they are is important for projecting current truth onto future action.
 
@@ -36,7 +36,7 @@ The verbatim prose of a human being is an asset. Spark persists context as user 
 
 Spark leans on the human practitioner to give clear, unambiguous and confident statements about the project. In so doing, *it demands more of the user than any other framework*.
 
-> Agents tend to copy the conventions, rigor, and semantics of surrounding code when working in code. Since they think in *prose*, surround them with yours.
+> Agents tend to copy the conventions, rigor, and semantics of surrounding code when working in codebases. Since they think in *prose*, surround them with yours, and they will mimic the patterns of your reasoning organically.
 
 ### 2. Spark encodes context as Question-Answer pairs
 
@@ -49,17 +49,24 @@ Reason number one. Most excitingly, Spark presents a new way to scale the perfor
 
 Spark unlocks the capacity to build the moats and out-competes rivals along an axis that has hitherto been unharnessed.
 
-In most industries, current state, the root of many organizations is already maximized or at the very least close to the maximum value that it should responsibly have because at the end of the day, organizations are limited now, not by what's creatable and generatable and predictable, but as a matter of fact, by what is reviewable.
+In most industries, current state, the root of many organizations is already maximized or at the very least close to the maximum value that it should responsibly have because at the end of the day, organizations are limited now, not by what's creatable and generatable and producible, but as a matter of fact, by what is reviewable.
 
 And so, one of the axes that organizations and teams that have levered is number one, how good material is before it gets to the review stage in the first place, since it reduces the length of the review phase and thereby increases productive throughput, but they are also limited by the way that the rate at which such output can be generated.
 
-Furthermore, many teams rely on rigid, albeit effective, frameworks like to ensure that even at volume, agents produce desirable results with minimal human review. However, not unlike the problem with LLMs themselves, this results in a flattening or sanding down of the extremities where personality, brand, character, creativity, and originality arise.
+Furthermore, many teams rely on rigid, albeit effective, frameworks like to ensure that even at volume, agents produce desirable results with minimal human review. However, not unlike the problem with LLMs themselves, this results in a flattening or sanding down of the extremities where taste, craft, skill, opinion, and expertise emerge.
 
 Furthermore, in an age where the vast majority of content, copy, and code is agent-generated, the premium on human-generated content will only get higher and higher, and indeed, it may be at a century high right now, and perhaps at the highest high since more than 90% of the population could read.
 
-And so, teams and organizations, they have a vested interest in improving not only the quality of their human output, as this is a strong moat, but indeed the throughput and retention of that human output as well, but if human output is to be retained, and verbatim human-generated text is to be retained, then it is in the vested interest of the very same teams that this human content be produced at the highest rate and the highest quality possible.
+Teams have a vested interest in both the quality and the throughput of human output, since retaining verbatim human-generated text only pays off when it's produced at the highest rate and quality possible, while minimizing the attention cost of cleaning it for disfluencies and making it sound shippable. And thus, the more well-spoken the team becomes to the agent, and the better the team can develop its members along the aptitude curve of distilling intent into precise language quickly and at scale, the more equipped that team becomes to out-compete all others in its niche and indeed unlock the full potential of the technology.
 
-However, even more of the team's interests lie, and the interests, and the teams have more to gain in creating pipelines, not by which the models can distill intent into action anymore, but indeed in the pipelines by which intent is distilled into the agent's context to begin with. And so whether across a long-running solo project or any length of time in a project with a large team, the very reasons for which those individuals are on that team make it in the best interest of the team, and indeed apply, imply already that it is the intent of the team, the expertise, craft, takes decision-making, and rationale of those people is distilled in the behavior of the agents. Indeed, when any organization requires, requests for so much as permits the use of agents by their team, it is on the unspoken assumption that those agents will act in accordance with the proficiencies and aptitudes of the team members. However, in most ways, this promise is yet to be delivered faithfully by agents today.
+<details>
+<summary>A musing: the jockey on race day</summary>
+
+> At a derby on race day, the only skill that matters for the jockey is their ability to drive the horse. Everything else is auxiliary to that access and occurs every day with painstaking and mind-blowing meticulousness from selecting suppliers of the horse's stock, in other words, the model's intelligence, to grooming the horse so that it's in the best mood on race day too, just as we groom, engineer, and manicure our content relentlessly. And yet, all of these are beginning to be treated as ends when indeed they are means to creating a track just like the one at the derby, along which we wish that our trusty steed will race in a fashion outperforming the others. But again, the wrong jockey on race day could lay waste to the team's hard work wholesale. And so in a similar sense, to train teams on becoming better expressed and invest in the linguistic proficiency of oneself and one's team is akin to training the body of the jockey and investing in him or her. Sparks gives teams a way not only to benefit from what capital they already have within their humans in that regard, but also to evaluate teams and train them on deepening this critical proficiency.
+
+</details>
+
+However, even more of the team's interests lie, and the interests, and the teams have more to gain in creating pipelines, not by which the models can distill intent into action anymore, but indeed in the pipelines by which intent and reasoning patterns are distilled into the agent's context to begin with. And so whether across a long-running solo project or any length of time in a project with a large team, the very reasons for which those individuals are on that team make it in the best interest of the team, and indeed apply, imply already that it is the intent of the team, the expertise, craft, takes decision-making, and rationale of those people is distilled in the behavior of the agents. Indeed, when any organization requires, requests for so much as permits the use of agents by their team, it is on the unspoken assumption that those agents will act in accordance with the proficiencies and aptitudes of the team members. However, in most ways, this promise is yet to be delivered faithfully by agents today.
 
 Spark already fixes this by distilling context only in the verbatim prose of human beings, and this has two marked benefits. Number one, it requires human practitioners to guard the context more closely and indeed compels them to create the context themselves. Number two, it gives all practitioners a channel through which to develop professionally that will in all likelihood become only more salient as all industries lean more and more heavily on the use of agents.
 
@@ -69,7 +76,7 @@ At the end of the day, the entire point of context engineering is to preserve hu
 
 ## How Spark works
 
-By grouping context into categories and question answer pairs, it makes it easier for the agent to determine what matters. Spark is highly opinionated about what it is that matters. It also makes it easier for the agent to elicit such things from the user.
+By grouping context into categories and question answer pairs, it makes it easier for the agent to determine what matters. Spark is highly opinionated about what it is that matters. It also makes it easier for the agent to elicit such things from the user using skills like `/study`.
 
 ### sparks.json
 
