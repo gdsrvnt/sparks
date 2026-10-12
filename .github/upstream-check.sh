@@ -3,10 +3,20 @@
 set -euo pipefail
 pins="$1"
 if [ "${DRY_RUN:-0}" != 1 ]; then
-  if [ -z "${WEBHOOK_URL:-}" ] || [ -z "${WEBHOOK_KEY:-}" ] || [ -z "${WEBHOOK_HEADER:-}" ]; then
-    echo "::error::UPSTREAM_WEBHOOK_URL, UPSTREAM_WEBHOOK_KEY and UPSTREAM_WEBHOOK_HEADER must all be set"
+  if [ -z "${WEBHOOK_URL:-}" ] || [ -z "${WEBHOOK_HEADER:-}" ]; then
+    echo "::error::UPSTREAM_WEBHOOK_URL and UPSTREAM_WEBHOOK_HEADER must be set"
     exit 1
   fi
+  # UPSTREAM_WEBHOOK_HEADER may be the full header line ("Authorization: Bearer <key>"), as the routine panel shows it.
+  case "$WEBHOOK_HEADER" in
+    *:*) auth_header="$WEBHOOK_HEADER" ;;
+    *)
+      if [ -z "${WEBHOOK_KEY:-}" ]; then
+        echo "::error::UPSTREAM_WEBHOOK_KEY must be set when UPSTREAM_WEBHOOK_HEADER is only a header name"
+        exit 1
+      fi
+      auth_header="${WEBHOOK_HEADER}: ${WEBHOOK_KEY}" ;;
+  esac
 fi
 n=$(jq length "$pins")
 for i in $(seq 0 $((n - 1))); do
@@ -30,5 +40,5 @@ for i in $(seq 0 $((n - 1))); do
   if [ "$hits" != 0 ]; then echo "$name: $current already has a discussion, skipping"; continue; fi
   echo "$name: $pinned -> $current, notifying"
   curl --fail-with-body -sS -X POST "$WEBHOOK_URL" -H "Content-Type: application/json" \
-    -H "${WEBHOOK_HEADER}: ${WEBHOOK_KEY}" --data-binary "$payload"
+    -H "$auth_header" --data-binary "$payload"
 done
