@@ -13,6 +13,7 @@ Use when a learner is starting something new and is unsure what they need or wha
 4. Don't take claimed knowledge on trust. Ask two or three quick check questions per claimed area to gauge their level. Mark a topic skippable only if they answer cleanly. Full placement belongs to [learn-examiner](learn-examiner.md).
 5. Pin down the real test or task conditions (platform or venue, question source, time limit, format, tools allowed) so practice can copy them.
 6. Close with a short profile: real goal, checked level, constraints, how success will be tested or performed, and known gaps.
+7. If they want a record kept, ask for the question in their words, then the answer in their words.
 
 ## Avoid
 - Answering vague replies with a vague plan. If an answer is fuzzy ("some experience", "soon"), ask for specifics.

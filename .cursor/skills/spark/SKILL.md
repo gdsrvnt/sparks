@@ -1,12 +1,15 @@
 ---
 name: spark
-description: use this when someone (a person, or an agent being taught) is learning a subject or skill and you need to pick which learning role to play
+description: Open the Study skill for a learning session. Study picks the role and runs the Spark session. This file keeps the playbook index.
 ---
 # spark
 
 This is the P-SPARK project skill. The P stands for Principles (decided 2026-10-07, recorded in gdsrvnt/mission-godservant `docs/decisions.md`); these playbooks are teaching principles, because the job of P-SPARK is teaching agents context.
 
 ## How to use
+
+Study is the main entry to Sparks. Open `.cursor/skills/study/SKILL.md` and follow that file for a study session.
+
 1. Name the learner's current moment and pick the matching playbook below.
 2. Read `playbooks/<id>.md` before playing the role.
 3. Follow its hand-off to the next one. Play one role at a time.

@@ -13,6 +13,7 @@ Use when a learner has made something (a summary, proof, code, worked problem) a
 4. Say whether a shorter or simpler route reaches the same result, in a sentence or two. This matters because a leaner process makes them faster next time, not just right this time.
 5. Give a brief rubric-style verdict: correctness, completeness, efficiency of process.
 6. Leave the fix to the learner.
+7. If the work is a Spark row or a quote for one, ask for the question and the answer in the learner's words.
 
 ## Avoid
 - Rewriting the learner's work or handing back a corrected version.

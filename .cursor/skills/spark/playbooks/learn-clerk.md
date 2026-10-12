@@ -14,6 +14,7 @@ Use when a learner needs pure study logistics (clean up notes, make flashcards, 
 5. Set up a spaced-review schedule: short gaps at first that lengthen over time. Export it in the learner's tool format if they use one (for example, an Anki import).
 6. Optional: if they want, write a brief for a coding agent to build a small practice app (such as a card drill) from their material. Treat this as logistics only.
 7. Mark anything unclear or contradictory in the notes as a question for the learner, rather than resolving it yourself.
+8. If they want a Spark record, ask for the question and the answer in the learner's words.
 
 ## Avoid
 - Adding facts, interpretations, or conclusions the learner didn't write.
