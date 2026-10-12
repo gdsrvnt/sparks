@@ -2,6 +2,39 @@
 
 > Spark is a way of engineering the context of a project or a repository in such a fashion that makes the information have three things that current approaches to context management don't have.
 
+## Cursor plugin
+
+This repository is a single Cursor plugin. The manifest is `.cursor-plugin/plugin.json` (`name`: `sparks`, package version `0.0.0`).
+
+Sparks gathers, maintains, and structures project context as question-and-answer pairs. It is built for Grok Bot and usable in any harness. This package is the plugin scaffold. Skill text ships later.
+
+### Installation
+
+After the plugin is listed, install it from Customize: find Sparks and choose Install.
+
+To load this repository locally before it is published:
+
+1. Copy this plugin into `~/.cursor/plugins/local/sparks`, including `.cursor-plugin/plugin.json` and the component directories.
+2. Reload Cursor.
+3. Open Customize and confirm the plugin is present.
+
+Cursor loads local plugins from that folder when local plugin imports are allowed. Submit the public repository at [cursor.com/marketplace/publish](https://cursor.com/marketplace/publish) when it is ready for review.
+
+### Components
+
+Discovery uses the default folders. The manifest does not set custom component paths.
+
+| Component | Path | Status |
+| --- | --- | --- |
+| Skills | `skills/` | Reserved and empty. No `skills/*/SKILL.md` yet. |
+| Rules | `rules/` | Not included. |
+| Agents | `agents/` | Not included. |
+| Commands | `commands/` | Not included. |
+| Hooks | `hooks/hooks.json` | Not included. |
+| MCP servers | `mcp.json` | Not included. |
+
+`skills/` is present so later skill packages have a home. The repository root `SKILL.md` stays project source. With `skills/` present, Cursor discovers plugin skills from that directory.
+
 ## How to use Spark
 
 In a given directory, the sparks.json holds question answer pairs that pertain to stack questions in that particular directory.
@@ -125,8 +158,13 @@ K is the last one. And K is one of the most powerful types of SPARK entry. K is 
 
 Spark also helps to keep a project on the rails because it encompasses the five things that are most important about project management. It's five types of data at large that together make up pretty much all the domains of data that a project needs to have.
 
+## Credits
+
+- [@poteto](https://github.com/poteto)
+- [@mattpocock](https://github.com/mattpocock), whose `grilling` skill is the basis for the `grill-me` skill in this plugin
+
 ## License
 
 License: not yet chosen.
 
-The SPDX license identifier is UNLICENSED. No license owner is named.
+The SPDX license identifier is UNLICENSED. No license owner is named. The same statement is in `LICENSE`. The plugin manifest `license` field is `UNLICENSED`.
