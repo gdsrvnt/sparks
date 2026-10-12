@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/gdsrvnt/spark/main/spark.schema.json",
+  "$id": "https://raw.githubusercontent.com/gdsrvnt/sparks/main/spark.schema.json",
   "title": "spark.json",
   "description": "A JSON array of SPARK records. spark_id.py checks each id. This schema does not describe the agent skill in SKILL.md.",
   "type": "array",

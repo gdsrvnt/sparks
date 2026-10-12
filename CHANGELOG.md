@@ -6,10 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-12 (plugin package)
+
 ### Added
 
-- Cursor plugin scaffold: `.cursor-plugin/plugin.json` at package version `0.0.0`, a reserved empty `skills/` directory, and a `LICENSE` file stating the SPDX identifier `UNLICENSED`.
-- Plugin package version stays `0.0.0` while skills are still absent. `[1.0.0]` below records the spark format, which is separate from the plugin package version.
+- Cursor plugin skills under `skills/`: `study` (moved from `.cursor/skills/study`), `grill-me`, and `ketchup`, `how`, `why`, `teach`, `bro` from poteto's pstack (MIT, see `THIRD_PARTY_NOTICES.md`).
+- MIT license, Copyright (c) 2026 gdsrvnt.
+
+### Removed
+
+- Root `SKILL.md` (SPARK framing skill) and the `.cursor/skills/spark` skill with its playbooks. `README.md` supersedes them.
+- `REVIEW.md`.
+
+The plugin package version (`0.1.0`) is separate from the spark format version (`1.0.0` below).
 
 ## [1.0.0] - 2026-10-09
 
@@ -19,6 +28,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `spark_id.py`, which checks those ids and unions loaded records with `connect`.
 - `spark.schema.json`, which checks the shape of the array.
 - `bin/spark`, a placeholder that exits 0 and writes nothing.
-- `SKILL.md`, an agent framing skill that also uses the name SPARK.
-- Learning playbooks under `.cursor/skills/spark`.
-- A GitHub Actions workflow that checks ids and the schema on push and on pull request.
+- `SKILL.md`, an agent framing skill that also uses the name SPARK (removed in plugin 0.1.0).
+- Learning playbooks under `.cursor/skills/spark` (removed in plugin 0.1.0).

@@ -4,9 +4,9 @@
 
 ## Cursor plugin
 
-This repository is a single Cursor plugin. The manifest is `.cursor-plugin/plugin.json` (`name`: `sparks`, package version `0.0.0`).
+This repository is a single Cursor plugin. The manifest is `.cursor-plugin/plugin.json` (`name`: `sparks`, package version `0.1.0`).
 
-Sparks gathers, maintains, and structures project context as question-and-answer pairs. It is built for Grok Bot and usable in any harness. This package is the plugin scaffold. Skill text ships later.
+Sparks gathers, maintains, and structures project context as question-and-answer pairs. It is built for Grok Bot and usable in any harness.
 
 ### Installation
 
@@ -26,14 +26,14 @@ Discovery uses the default folders. The manifest does not set custom component p
 
 | Component | Path | Status |
 | --- | --- | --- |
-| Skills | `skills/` | Reserved and empty. No `skills/*/SKILL.md` yet. |
+| Skills | `skills/` | `study`, `grill-me`, and `ketchup`, `how`, `why`, `teach`, `bro` (from poteto's pstack, see `THIRD_PARTY_NOTICES.md`). |
 | Rules | `rules/` | Not included. |
 | Agents | `agents/` | Not included. |
 | Commands | `commands/` | Not included. |
 | Hooks | `hooks/hooks.json` | Not included. |
 | MCP servers | `mcp.json` | Not included. |
 
-`skills/` is present so later skill packages have a home. The repository root `SKILL.md` stays project source. With `skills/` present, Cursor discovers plugin skills from that directory.
+Cursor discovers plugin skills from `skills/`.
 
 ## How to use Spark
 
@@ -165,6 +165,4 @@ Spark also helps to keep a project on the rails because it encompasses the five 
 
 ## License
 
-License: not yet chosen.
-
-The SPDX license identifier is UNLICENSED. No license owner is named. The same statement is in `LICENSE`. The plugin manifest `license` field is `UNLICENSED`.
+MIT. Copyright (c) 2026 gdsrvnt. See `LICENSE`. Third-party skills keep their own licenses; see `THIRD_PARTY_NOTICES.md`.
