@@ -1,0 +1,249 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["jsonschema>=4.18"]
+# ///
+
+"""``sparks entry add`` appends one SPARK record to a spark file.
+
+The record shape comes from ``spark.schema.json`` and the id rule from
+``spark_id.py``. Both are read from the repository root, the parent of
+``bin/``. Neither is copied here.
+"""
+
+import argparse
+import contextlib
+import json
+import os
+import stat
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from jsonschema.validators import validator_for  # noqa: E402
+
+from spark_id import Spark, SparkFileError, load  # noqa: E402
+
+DEFAULT_PATH = Path("sparks.json")
+REPLACE_ISSUE = "https://github.com/gdsrvnt/sparks/issues/21"
+SCHEMA = json.loads((ROOT / "spark.schema.json").read_text(encoding="utf-8"))
+VALIDATOR = validator_for(SCHEMA)(SCHEMA)
+
+ADD_DESCRIPTION = """\
+Append one SPARK record to a spark file.
+
+The record must match spark.schema.json, and its id must be the spark_id.py id
+of its question and answer: the last 16 hex characters of SHA-256 over the
+compact, key-sorted JSON of answer, question, and type. A missing file is
+created as [] plus the record. An existing file must itself be valid and must
+not already hold the id. The new file is written to a temp file in the same
+directory, validated, moved into place with os.replace, then re-read and
+validated again."""
+
+ADD_EPILOG = f"""\
+Writers do not lock the file, so run one add per file at a time.
+
+TODO: replace is not supported yet, so add only appends. How add should pick
+the record to replace is open in {REPLACE_ISSUE}"""
+
+
+class Rejected(Exception):
+    """sparks refuses the input or the file. The message goes to stderr."""
+
+
+def _object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    found: dict[str, object] = {}
+    for key, value in pairs:
+        if key in found:
+            raise ValueError(f"duplicate key {key!r}")
+        found[key] = value
+    return found
+
+
+def _parse(text: str, label: str) -> object:
+    """Parse JSON, refusing duplicate keys: a rewrite would keep only one."""
+    try:
+        return json.loads(text, object_pairs_hook=_object)
+    except json.JSONDecodeError as exc:
+        raise Rejected(f"{label}: invalid JSON: {exc}") from exc
+    except ValueError as exc:
+        raise Rejected(f"{label}: {exc}") from exc
+
+
+def _schema_problems(instance: object, skip: int = 0) -> list[str]:
+    """spark.schema.json errors as ``where: message``, minus ``skip`` path parts."""
+    problems = []
+    for error in VALIDATOR.iter_errors(instance):
+        parts = list(error.absolute_path)[skip:]
+        where = "".join(f"[{p}]" if isinstance(p, int) else f".{p}" for p in parts)
+        where = where.lstrip(".")
+        problems.append(f"{where}: {error.message}" if where else error.message)
+    return problems
+
+
+def parse_record(text: str) -> dict[str, str]:
+    """The --json record, checked, with keys in the order type, question, answer, id."""
+    record = _parse(text, "--json")
+    if not isinstance(record, dict):
+        raise Rejected("--json: expected one JSON object, a single SPARK record")
+    # The schema describes the file, so check the record as a one-item file.
+    problems = _schema_problems([record], skip=1)
+    if problems:
+        raise Rejected("--json: " + "; ".join(problems))
+    try:
+        spark = Spark(record["question"], record["answer"])
+    except SparkFileError as exc:
+        raise Rejected(f"--json: {exc}") from exc
+    if record["id"] != spark.id:
+        raise Rejected(
+            f"--json: id {record['id']} does not match question and answer"
+            f" (spark_id.py gives {spark.id})"
+        )
+    return {"type": "SPARK", "question": spark.question, "answer": spark.answer, "id": spark.id}
+
+
+def read_file(path: Path, label: str) -> list[dict[str, str]]:
+    """Records of a valid spark file: spark.schema.json, then spark_id.load."""
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except OSError as exc:
+        raise Rejected(f"{label}: {exc.strerror or exc}") from exc
+    except UnicodeDecodeError as exc:
+        raise Rejected(f"{label}: file is not UTF-8") from exc
+    records = _parse(text, label)
+    problems = _schema_problems(records)
+    if problems:
+        raise Rejected(f"{label}: " + "; ".join(problems))
+    try:
+        load(path)
+    except SparkFileError as exc:
+        raise Rejected(f"{label}: {exc}") from exc
+    return records
+
+
+def render(records: list[dict[str, str]]) -> str:
+    return json.dumps(records, ensure_ascii=False, indent=2) + "\n"
+
+
+def _default_mode() -> int:
+    """The mode open() gives a new file: 0o666 minus the umask."""
+    umask = os.umask(0)
+    os.umask(umask)
+    return 0o666 & ~umask
+
+
+def _write_atomic(target: Path, text: str, mode: int, label: str) -> None:
+    """Write a same-directory temp file, fsync and validate it, then os.replace."""
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, mode)
+        read_file(Path(tmp), f"{label} (new content)")
+        os.replace(tmp, target)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(tmp)
+        raise
+    if hasattr(os, "O_DIRECTORY"):  # POSIX: make the rename itself durable
+        with contextlib.suppress(OSError):
+            dir_fd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+
+
+def add(path: Path, record_json: str) -> str:
+    """Append the --json record to the spark file at path and return its id."""
+    record = parse_record(record_json)
+    label = str(path)
+    try:
+        # Write through symlinks, so a linked file is updated, not replaced by a copy.
+        target = path.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise Rejected(f"{label}: {exc}") from exc
+    if target.exists():
+        if not target.is_file():
+            raise Rejected(f"{label}: not a regular file")
+        records = read_file(target, label)
+        mode = stat.S_IMODE(target.stat().st_mode)
+    elif target.parent.is_dir():
+        records = []
+        mode = _default_mode()
+    else:
+        raise Rejected(f"{label}: parent directory does not exist")
+    # TODO(#21): replace semantics are undecided, see
+    # https://github.com/gdsrvnt/sparks/issues/21. Until then add only appends:
+    # an id already in the file is refused, and a record that reuses an
+    # existing question with a new answer is appended next to the old one.
+    if any(existing["id"] == record["id"] for existing in records):
+        raise Rejected(f"{label}: id {record['id']} is already in the file")
+    records.append(record)
+    _write_atomic(target, render(records), mode, label)
+    try:
+        written = read_file(target, label)
+    except Rejected as exc:
+        raise Rejected(f"re-validation after write failed: {exc}") from exc
+    if written != records:
+        raise Rejected(
+            f"{label}: changed by someone else during the write;"
+            f" check that it holds id {record['id']}"
+        )
+    return record["id"]
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="sparks", description="Keep SPARK records in a spark file (sparks.json)."
+    )
+    commands = parser.add_subparsers(dest="command", required=True, metavar="<command>")
+    entry = commands.add_parser(
+        "entry", help="records in a spark file", description="Records in a spark file."
+    )
+    actions = entry.add_subparsers(dest="action", required=True, metavar="<action>")
+    add_parser = actions.add_parser(
+        "add",
+        help="append one SPARK record",
+        description=ADD_DESCRIPTION,
+        epilog=ADD_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    add_parser.add_argument(
+        "--path",
+        type=Path,
+        default=DEFAULT_PATH,
+        metavar="<path>",
+        help="spark file to update, created if missing (default: ./sparks.json)",
+    )
+    add_parser.add_argument(
+        "--json",
+        required=True,
+        dest="record",
+        metavar="<json>",
+        help='one record: {"type": "SPARK", "question": ..., "answer": ..., "id": ...}',
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    try:
+        record_id = add(args.path, args.record)
+    except Rejected as exc:
+        sys.stderr.write(f"sparks: {exc}\n")
+        return 1
+    except OSError as exc:
+        sys.stderr.write(f"sparks: {args.path}: {exc.strerror or exc}\n")
+        return 1
+    sys.stdout.write(f"added {record_id} to {args.path}\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

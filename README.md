@@ -43,6 +43,23 @@ Cursor discovers plugin skills from `skills/`.
 
 In a given directory, the sparks.json holds question answer pairs that pertain to stack questions in that particular directory.
 
+### `sparks entry add`
+
+`bin/sparks` adds one record at a time to a `sparks.json`. It is a [uv](https://docs.astral.sh/uv/) script, so uv installs its one dependency, `jsonschema`, on first run.
+
+```sh
+bin/sparks entry add --json '{"type":"SPARK","question":"What is Spark?","answer":"Spark is a way of gathering, maintaining, and structuring context about a project in Q&A pairs.","id":"107ee97d1abd8e36"}'
+# added 107ee97d1abd8e36 to sparks.json
+```
+
+- `--path <path>` names the file. Without it, the command uses `sparks.json` in the current directory. A missing file is created.
+- `--json <json>` is one record. It must match `spark.schema.json`, and its `id` must be the id `spark_id.py` derives from the question and answer. On a mismatch, the error prints the expected id.
+- On invalid JSON, a schema failure, a wrong id, an id already in the file, or an existing file that is not valid, the command exits 1 with one line on stderr and leaves the file alone.
+- The new file goes to a temp file in the same directory, `os.replace` moves it into place, and the file is read back and checked. Writers do not lock, so run one `sparks entry add` per file at a time.
+- Replacing a record is not supported yet. See [#21](https://github.com/gdsrvnt/sparks/issues/21).
+
+On Windows, run `uv run --script bin/sparks entry add ...`. Run the tests with `uv run tests/test_sparks.py`.
+
 ## Background
 
 The point of Spark is to improve context engineering in three ways that no existing paradigm achieves.

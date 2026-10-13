@@ -22,3 +22,5 @@ The same question and answer produce the same id on every machine. `connect` in 
 `spark.schema.json` checks the array shape. The hash check stays in `spark_id.py`. The schema `$id` is `https://raw.githubusercontent.com/gdsrvnt/sparks/main/spark.schema.json`.
 
 `bin/spark` is a placeholder. It has no features.
+
+`bin/sparks entry add` appends one record to a file. It checks the record and the file with `spark.schema.json` and `spark_id.py`. The README shows how to use it.
