@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `spark.schema.json`: `type` must be one of `S`, `P`, `A`, `R`, or `K`. Records no longer have an `id` key. `spark.json`, `spark_id.py`, and `bin/sparks` follow that shape. The derived id is still printed on add, but it is not stored.
 
+### Removed
+
+- `skills/grill-me/`, with its `THIRD_PARTY_NOTICES.md` entry and its `.github/upstreams.json` tracker entry. `sparks-discuss` and `sparks-domain` still derive from Matt Pocock's work and keep his credit and `skills/LICENSE-mattpocock`.
+
 ### Added
 
 - `bin/sparks entry add [--path <path>] --json <json>`, a uv script that adds or replaces one SPARK record in `./sparks.json` or `--path`. It checks the record against `spark.schema.json` and `spark_id.py`, replaces by exact decoded question regardless of type (keeping array position), appends if absent, and refuses ambiguous exact matches or an invalid existing file. Identical adds succeed without rewriting. It writes atomically, and on POSIX locks the directory so concurrent adds take turns ([#21](https://github.com/gdsrvnt/sparks/issues/21)).
@@ -17,7 +21,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `skills/sparks-discuss/`: interviews the user one persona at a time (study's playbooks, refit so the user is the target) and adds or replaces their answers verbatim in `sparks.json` through `bin/sparks entry add`. Adapted from Matt Pocock's `grilling` skill (MIT, `skills/LICENSE-mattpocock`).
 - `skills/spark-verification/`: runs the bundled `create-verification-skill` or `maintain-verification-skill` with the project's sparks as ammunition, in a headless mode (every spark) or an interactive mode (`sparks-discuss` first, then the sparks it wrote).
 - `skills/create-verification-skill/` and `skills/maintain-verification-skill/`, bundled unchanged from poteto's pstack at commit `118e73b`. Each has her MIT `LICENSE` next to its `SKILL.md`. They are not in `.github/upstreams.json`.
-- A `THIRD_PARTY_NOTICES.md` entry for `skills/grill-me/` (Matt Pocock, MIT).
 - `skills/sparks-domain/`: the `sparks-discuss` interview with domain modeling built in. It challenges terms against `sparks.json`, sharpens fuzzy language, stress-tests concepts with scenarios, and checks them against the code. Each settled term or decision goes into `sparks.json` through `bin/sparks entry add`, never into `GLOSSARY.md`, `CONTEXT.md`, or ADR files. Adapted from Matt Pocock's `domain-modeling` skill at `v1.3.1` (MIT, `LICENSE` next to its `SKILL.md`).
 - `skills/spark-voice/`: the voice mode protocol for Grok Bot, for working with Sparks over a phone or voice call. It holds the call start handshake and dictation mode inline, then runs `sparks-discuss`. The model may invoke it.
 

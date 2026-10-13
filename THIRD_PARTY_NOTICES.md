@@ -27,12 +27,10 @@ They are not listed in `.github/upstreams.json`. To update them, copy them again
 
 It's licensed under the MIT License, Copyright (c) 2026 HumanLayer. The full license text is in [`skills/LICENSE-humanlayer`](skills/LICENSE-humanlayer).
 
-## grilling skill by Matt Pocock
+## Skills by Matt Pocock
 
-`skills/grill-me/` is adapted from the `grilling` skill in [mattpocock/skills](https://github.com/mattpocock/skills/tree/24fe0ef7737efae15c87225755e9f6f5965e4888/skills/productivity/grilling) at release `v1.3.1`, commit `24fe0ef7737efae15c87225755e9f6f5965e4888`. It is renamed `grill-me`, its recommended answers are removed, and its `agents/openai.yaml` display name is changed.
-
-`skills/sparks-discuss/` adapts its grilling core (design tree, depth over scope, facts versus decisions) from the same skill at commit `95249b0b49782349740fd9b8c6ce32b4e59e497a` ([source](https://github.com/mattpocock/skills/tree/95249b0b49782349740fd9b8c6ce32b4e59e497a/skills/productivity/grilling)).
+`skills/sparks-discuss/` adapts its grilling core (design tree, depth over scope, facts versus decisions) from his `grilling` skill in [mattpocock/skills](https://github.com/mattpocock/skills) at commit `95249b0b49782349740fd9b8c6ce32b4e59e497a` ([source](https://github.com/mattpocock/skills/tree/95249b0b49782349740fd9b8c6ce32b4e59e497a/skills/productivity/grilling)).
 
 `skills/sparks-domain/` adapts the `domain-modeling` skill from [mattpocock/skills](https://github.com/mattpocock/skills/tree/24fe0ef7737efae15c87225755e9f6f5965e4888/skills/engineering/domain-modeling) at release `v1.3.1`, commit `24fe0ef7737efae15c87225755e9f6f5965e4888`. It keeps the method: challenging terms, sharpening fuzzy language, concrete scenarios, cross-referencing with code, the glossary rules, and the three-part bar for recording a decision. It runs inside the `sparks-discuss` interview and writes Spark entries through `bin/sparks entry add` instead of `GLOSSARY.md` and ADR files. The skill's `GLOSSARY-FORMAT.md`, `ADR-FORMAT.md`, and `agents/openai.yaml` are not copied. The folder also holds his `LICENSE` next to its `SKILL.md`.
 
-All three are licensed under the MIT License, Copyright (c) 2026 Matt Pocock. The full license text is in [`skills/LICENSE-mattpocock`](skills/LICENSE-mattpocock).
+Both are licensed under the MIT License, Copyright (c) 2026 Matt Pocock. The full license text is in [`skills/LICENSE-mattpocock`](skills/LICENSE-mattpocock).

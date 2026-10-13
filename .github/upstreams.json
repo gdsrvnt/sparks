@@ -16,14 +16,5 @@
     "pinned_ref": "bba9d13ab34f0a87f1cc33df4dd196372393ddfc",
     "pinned_version": "1.0.1",
     "sparks_skills": ["show-me"]
-  },
-  {
-    "upstream": "grill-me",
-    "repo": "mattpocock/skills",
-    "kind": "release",
-    "path": "skills/productivity/grilling/SKILL.md",
-    "pinned_ref": "v1.3.1",
-    "pinned_version": "v1.3.1",
-    "sparks_skills": ["grill-me"]
   }
 ]
