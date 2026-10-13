@@ -4,10 +4,10 @@
 # dependencies = ["jsonschema>=4.18"]
 # ///
 
-"""``sparks entry add`` appends one SPARK record to a spark file.
+"""``sparks entry add`` adds or replaces one SPARK record by exact question.
 
 The record shape comes from ``spark.schema.json``. ``spark_id.py`` derives
-the id used to refuse a duplicate. Neither id nor extra keys are stored.
+the content id printed after a successful add. Neither id nor extra keys are stored.
 Both modules are read from the repository root, the parent of ``bin/``.
 """
 
@@ -37,7 +37,6 @@ from spark_id import Spark, SparkFileError, load  # noqa: E402
 
 DEFAULT_PATH = Path("sparks.json")
 LOCK_NAME = ".sparks.lock"
-REPLACE_ISSUE = "https://github.com/gdsrvnt/sparks/issues/21"
 SCHEMA = json.loads((ROOT / "spark.schema.json").read_text(encoding="utf-8"))
 VALIDATOR = validator_for(SCHEMA)(SCHEMA)
 SHOWN_PROBLEMS = 3  # schema problems listed in one message
@@ -45,26 +44,27 @@ PROBLEM_CHARS = 200  # a longer problem is cut in the middle
 UNVERIFIED = 3  # exit status: written, but reading it back did not give what was written
 
 ADD_DESCRIPTION = """\
-Append one SPARK record to a spark file.
+Add or replace one SPARK record in a spark file.
 
 The record must match spark.schema.json: type is S, P, A, R, or K, with a
 question and an answer, and no id key. spark_id.py still derives an id, the
 last 16 hex characters of SHA-256 over the compact, key-sorted JSON of answer,
 question, and type. That id is printed, not stored. A missing file is
-created as [] plus the record. An existing file must itself be valid and must
-not already hold the same id. The new file is written to a temp file in the same
+created as [] plus the record. An existing file must itself be valid.
+An exact question match replaces the entire record in its current position,
+even if type changes; no match appends. Matching uses decoded strings without
+trimming, case folding, or Unicode normalization. Multiple exact matches are
+refused without writing. An identical record succeeds without rewriting.
+The new file is written to a temp file in the same
 directory, validated, moved into place with os.replace, then re-read and
 validated again."""
 
 ADD_EPILOG = f"""\
-exit status: 0 added; 1 refused, nothing written; 2 usage error; 3 written, but
+exit status: 0 added or replaced; 1 refused, nothing written; 2 usage error; 3 written, but
 the file read back was not what was written.
 
 On POSIX, adds in one directory take turns by locking a short-lived
-{LOCK_NAME} file there. Windows has no lock: run one add per file at a time.
-
-TODO: replace is not supported yet, so add only appends. How add should pick
-the record to replace is open in {REPLACE_ISSUE}"""
+{LOCK_NAME} file there. Windows has no lock: run one add per file at a time."""
 
 
 class Rejected(Exception):
@@ -295,7 +295,7 @@ def _existing(target: Path, label: str) -> tuple[list[dict[str, str]], int]:
 
 
 def add(path: Path, record_json: str) -> str:
-    """Append the --json record to the spark file at path and return its id."""
+    """Add or replace by exact question in the file at path and return its content id."""
     record = parse_record(record_json)
     label = _show(path)
     try:
@@ -311,15 +311,24 @@ def add(path: Path, record_json: str) -> str:
         raise Rejected(label, f"directory {_show(target.parent)} does not exist")
     with _locked(target.parent, label):
         records, mode = _existing(target, label)
-        # TODO(#21): replace semantics are undecided, see
-        # https://github.com/gdsrvnt/sparks/issues/21. Until then add only appends:
-        # an id already in the file is refused, and a record that reuses an
-        # existing question with a new answer is appended next to the old one.
         incoming = Spark(record["question"], record["answer"], record["type"])
-        for existing in records:
-            if Spark(existing["question"], existing["answer"], existing["type"]).id == incoming.id:
-                raise Rejected(label, f"id {incoming.id} is already in the file")
-        records.append(record)
+        matches = [
+            i for i, existing in enumerate(records)
+            if existing["question"] == record["question"]
+        ]
+        if len(matches) > 1:
+            raise Rejected(
+                label,
+                f"{len(matches)} records have the exact question; "
+                "resolve ambiguous matches before adding",
+            )
+        if matches:
+            index = matches[0]
+            if records[index] == record:
+                return incoming.id
+            records[index] = record
+        else:
+            records.append(record)
         _write_atomic(target, render(records), mode, label)
         try:
             written = read_file(target, label)
@@ -343,7 +352,7 @@ def _parser() -> argparse.ArgumentParser:
     actions = entry.add_subparsers(dest="action", required=True, metavar="<action>")
     add_parser = actions.add_parser(
         "add",
-        help="append one SPARK record",
+        help="add or replace one SPARK record by exact question",
         description=ADD_DESCRIPTION,
         epilog=ADD_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,

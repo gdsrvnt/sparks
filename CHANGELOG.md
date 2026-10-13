@@ -8,11 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- `spark.schema.json`: `type` must be one of `S`, `P`, `A`, `R`, or `K`. Records no longer have an `id` key. `spark.json`, `spark_id.py`, and `bin/sparks` follow that shape. The derived id is still printed on add and used to refuse a duplicate, but it is not stored.
+- `spark.schema.json`: `type` must be one of `S`, `P`, `A`, `R`, or `K`. Records no longer have an `id` key. `spark.json`, `spark_id.py`, and `bin/sparks` follow that shape. The derived id is still printed on add, but it is not stored.
 
 ### Added
 
-- `bin/sparks entry add [--path <path>] --json <json>`, a uv script that appends one SPARK record to `./sparks.json` or `--path`. It checks the record against `spark.schema.json` and `spark_id.py`, refuses a duplicate or an invalid existing file, writes atomically, and on POSIX locks the directory so concurrent adds take turns. Replace is a TODO ([#21](https://github.com/gdsrvnt/sparks/issues/21)).
+- `bin/sparks entry add [--path <path>] --json <json>`, a uv script that adds or replaces one SPARK record in `./sparks.json` or `--path`. It checks the record against `spark.schema.json` and `spark_id.py`, replaces by exact decoded question regardless of type (keeping array position), appends if absent, and refuses ambiguous exact matches or an invalid existing file. Identical adds succeed without rewriting. It writes atomically, and on POSIX locks the directory so concurrent adds take turns ([#21](https://github.com/gdsrvnt/sparks/issues/21)).
 - `tests/test_sparks.py`, run with `uv run tests/test_sparks.py`.
 
 ## [0.1.0] - 2026-10-12 (plugin package)

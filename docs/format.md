@@ -22,4 +22,4 @@ The same question and answer produce the same id on every machine. `connect` in 
 
 `bin/spark` is a placeholder. It has no features.
 
-`bin/sparks entry add` appends one record to a file. It checks the record and the file with `spark.schema.json` and `spark_id.py`. It does not write an `id`. Its default file is `sparks.json`, the name the README uses; `spark.json` in this repository is an example. The README shows how to use it.
+`bin/sparks entry add` adds one record or replaces the entire record with an exactly equal decoded `question` string in the target file, regardless of type. Replacement keeps its array position; no match appends. Matching does not normalize whitespace, case, punctuation, or Unicode. Multiple exact matches are refused without writing; an identical record succeeds without rewriting. The content hash is not the replacement key. It checks the record and the file with `spark.schema.json` and `spark_id.py`. It does not write an `id`. Its default file is `sparks.json`, the name the README uses; `spark.json` in this repository is an example. The README shows how to use it.
