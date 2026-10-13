@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Spark verification
 
-Sparks are ammunition. A verification skill is the weapon. This skill is an adapter: it runs poteto's [`create-verification-skill`](https://github.com/cursor/plugins/tree/118e73b0e196e4d49d5aade7ce6dd8985a621f68/pstack/skills/create-verification-skill) when the project has no verification skill, or [`maintain-verification-skill`](https://github.com/cursor/plugins/tree/118e73b0e196e4d49d5aade7ce6dd8985a621f68/pstack/skills/maintain-verification-skill) when it has one, and loads the human intent in `sparks.json` into it. Both ship in poteto's pstack plugin; if it isn't installed, read them at those links. Follow that skill as written. This file adds only what sparks change.
+Sparks are ammunition. A verification skill is the weapon. This skill is an adapter: it runs poteto's [`create-verification-skill`](../create-verification-skill/SKILL.md) when the project has no verification skill, or [`maintain-verification-skill`](../maintain-verification-skill/SKILL.md) when it has one, and loads the human intent in `sparks.json` into it. Both are bundled in this plugin. Open the file and follow that skill as written. This file adds only what sparks change.
 
 ## Pick the mode
 
@@ -51,4 +51,4 @@ Edit only what the upstream skill lets you edit. `sparks.json` changes only thro
 
 Add to the upstream report: the mode, the sparks placed, conflicts, spark violations, sparks that can't be verified and why, uncited lines, and questions for `/sparks-discuss`.
 
-Adapted from poteto's pstack skills; see [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).
+Adapted from poteto's skills, which are bundled with their license; see [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).
