@@ -187,6 +187,10 @@ K is the last one. And K is one of the most powerful types of SPARK entry. K is 
 
 Spark also helps to keep a project on the rails because it encompasses the five things that are most important about project management. It's five types of data at large that together make up pretty much all the domains of data that a project needs to have.
 
+## Contributing
+
+Every issue and every open pull request needs exactly one priority label: `low`, `medium`, `high`, or `urgent`. Draft PRs are exempt. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Credits
 
 - [Lauren Tan (@poteto)](https://github.com/poteto), who wrote the pstack skills in this plugin: `ketchup`, `how`, `why`, `bro`, `create-verification-skill`, and `maintain-verification-skill`. `spark-verification` is an adapter over the last two.
