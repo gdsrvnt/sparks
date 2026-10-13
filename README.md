@@ -30,7 +30,7 @@ Discovery uses the default folders. The manifest does not set custom component p
 
 | Component | Path | Status |
 | --- | --- | --- |
-| Skills | `skills/` | `sparks-discuss`, `spark-verification`, `study`, and `grill-me`; `ketchup`, `how`, `why`, `teach`, `bro`, `create-verification-skill`, and `maintain-verification-skill` from poteto's pstack; and `show-me` from HumanLayer. See `THIRD_PARTY_NOTICES.md`. |
+| Skills | `skills/` | `sparks-discuss`, `spark-voice`, `spark-verification`, `study`, and `grill-me`; `ketchup`, `how`, `why`, `teach`, `bro`, `create-verification-skill`, and `maintain-verification-skill` from poteto's pstack; and `show-me` from HumanLayer. See `THIRD_PARTY_NOTICES.md`. |
 | Rules | `rules/` | Not included. |
 | Agents | `agents/` | Not included. |
 | Commands | `commands/` | Not included. |
