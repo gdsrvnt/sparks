@@ -4,7 +4,7 @@
 
 ## Purpose
 
-the purpose of the sparks is simple and explicit: They are ammunition for spark-verification, a specialized version of potetos create verification skill that updates or maintains (see maintain verification skill, also poteto) verification skills to be used in all work. the thesis of spark is that if verification skills are the highest leverage asset in the age of orchestration, then the default best action on the board is to invest in the pipelines that distill intent before anything else.
+the purpose of the sparks is simple and explicit: They are ammunition for spark-verification, a specialized version of potetos create verification skill that updates or maintains (see maintain verification skill, also poteto) verification skills to be used in all work. the thesis of spark is that if verification skills are the highest leverage asset in the age of orchestration, then the default best move on the board is to invest in the pipelines that distill intent in almost-real time as agents run.
 
 ## Cursor plugin
 
