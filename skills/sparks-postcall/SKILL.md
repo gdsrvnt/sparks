@@ -90,7 +90,7 @@ Using the call's time span, with a margin of at least an hour on each side for w
 
 For every requirement, mark it `met`, `partial`, or `missing`, with evidence: a commit, a PR, a file and line, or command output. A claim in chat is not evidence, and neither is a PR title. Check the real diff or the real file.
 
-Then check the work against the spec in the other direction. Only work done for this call counts: work by you, your herdr agents, or the configured bot identity, or work linked from the call. Other people's work in the window is context only, and any conflict with it becomes an open question. For every item of the call's work, mark it `diverges` if it contradicts a requirement, follows a relay divergence whose meaning changed instead of the user's words, or does something the user put out of scope. A divergence with an obvious correction goes to step 6. Otherwise it becomes an open question.
+Then check the work against the spec in the other direction. Only work done for this call counts: work that you or the agents you launched for the call produced, and commits, PRs, or issues linked from the call's relays or replies. Work by anyone else, including other jobs under the bot identity, with no such link is context only. Other people's work in the window is context only, and any conflict with it becomes an open question. For every item of the call's work, mark it `diverges` if it contradicts a requirement, follows a relay divergence whose meaning changed instead of the user's words, or does something the user put out of scope. A divergence with an obvious correction goes to step 6. Otherwise it becomes an open question.
 
 This is a review step. Run it through `use-herdr` with a strong model at high effort (see step 8), and check its evidence yourself before you accept it.
 
@@ -123,7 +123,7 @@ If any condition fails, do not merge, and do not quietly let the PR sit either. 
 
 ## Done
 
-The skill is done when every requirement is `met` and merged, or is waiting on an open question or blocker the user has in one numbered message. The final report gives the spec location, the requirement table, the `diverges` list, the relay divergences, every PR's number, link, and merge commit, and the open questions.
+The skill is done when every requirement is `met` and merged and every `diverges` item is corrected, or is waiting on an open question or blocker the user has in one numbered message. The final report gives the spec location, the requirement table, the `diverges` list, the relay divergences, every PR's number, link, and merge commit, and the open questions.
 
 ## Credit
 
