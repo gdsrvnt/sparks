@@ -3,23 +3,39 @@
 # dependencies = []
 # ///
 
-"""``_preimage`` is the normative serializer. The id is the last 16 lowercase
-hex characters of SHA-256 over the UTF-8 of that JSON object. Files do not
-store the id. Strings are not trimmed and not Unicode-normalized.
+"""``_preimage`` is the normative serializer. The derived id is XXH64 (seed 0)
+of the UTF-8 of that JSON object, as 16 lowercase hex characters, computed by
+the bundled, dependency-free ``spark_hash.py``. A record may store that id
+under the optional ``id`` key; ``sparks entry add`` writes it on insertion.
+A stored id is kept as the record's reference and is not recomputed, so a
+file without ids stays valid and a stored id survives later hand edits.
+Strings are not trimmed and not Unicode-normalized.
 """
 
-import hashlib
 import json
+import re
 import sys
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+sys.path.append(str(Path(__file__).resolve().parent))
+from spark_hash import xxh64_hexdigest  # noqa: E402
+
 TYPES = ("s", "p", "a", "r", "k")
+ID_PATTERN = re.compile(r"[0-9a-f]{16}")
 
 
 class SparkFileError(Exception):
     """A file or a connect input broke the format or the id rule."""
+
+
+def derive_id(question: str, answer: str, spark_type: str) -> str:
+    """XXH64 (seed 0) of the preimage, as 16 lowercase hex characters."""
+    try:
+        return xxh64_hexdigest(_preimage(question, answer, spark_type))
+    except UnicodeEncodeError as exc:
+        raise SparkFileError("preimage is not UTF-8") from exc
 
 
 def _preimage(question: str, answer: str, spark_type: str) -> bytes:
@@ -33,12 +49,12 @@ def _preimage(question: str, answer: str, spark_type: str) -> bytes:
 
 @dataclass(frozen=True)
 class Spark:
-    """One immutable SPARK record. Its id is derived from its exact strings."""
+    """One immutable SPARK record. Its id is the stored id, else derived from its strings."""
 
     question: str
     answer: str
     type: str = "s"
-    id: str = field(init=False)
+    id: str | None = field(default=None)
 
     def __post_init__(self) -> None:
         if not isinstance(self.question, str) or not isinstance(self.answer, str):
@@ -47,13 +63,15 @@ class Spark:
             object.__setattr__(self, "type", self.type.lower())
         if self.type not in TYPES:
             raise SparkFileError("type must be one of s, p, a, r, k (any case)")
-        try:
-            digest = hashlib.sha256(
-                _preimage(self.question, self.answer, self.type)
-            ).hexdigest()
+        if self.id is None:
+            object.__setattr__(self, "id", derive_id(self.question, self.answer, self.type))
+            return
+        if not isinstance(self.id, str) or not ID_PATTERN.fullmatch(self.id):
+            raise SparkFileError("id must be 16 lowercase hex characters")
+        try:  # a stored id is not rehashed, but the strings must still be UTF-8
+            _preimage(self.question, self.answer, self.type)
         except UnicodeEncodeError as exc:
             raise SparkFileError("preimage is not UTF-8") from exc
-        object.__setattr__(self, "id", digest[-16:])
 
 
 def load(path: Path) -> tuple[Spark, ...]:
@@ -83,9 +101,12 @@ def load(path: Path) -> tuple[Spark, ...]:
     found: list[Spark] = []
     seen: set[str] = set()
     for item in data:
-        if not isinstance(item, dict) or set(item) != {"type", "question", "answer"}:
+        if not isinstance(item, dict) or not (
+            {"type", "question", "answer"} <= set(item) <= {"type", "question", "answer", "id"}
+        ):
             raise SparkFileError(
-                "each record must be an object with keys type, question, and answer"
+                "each record must be an object with keys type, question, and answer, "
+                "and optionally id"
             )
         wire_type = item["type"]
         question = item["question"]
@@ -99,7 +120,9 @@ def load(path: Path) -> tuple[Spark, ...]:
             raise SparkFileError(
                 "type must be one of s, p, a, r, k (any case), and question and answer must be strings"
             )
-        built = Spark(question, answer, wire_type)
+        if "id" in item and not isinstance(item["id"], str):
+            raise SparkFileError("id must be 16 lowercase hex characters")
+        built = Spark(question, answer, wire_type, item.get("id"))
         if built.id in seen:
             raise SparkFileError("duplicate id")
         seen.add(built.id)
@@ -112,8 +135,8 @@ def connect(*groups: Iterable[Spark]) -> tuple[Spark, ...]:
 
     Walks groups in argument order, then each Spark in iteration order.
     The first Spark for an id is kept. A later Spark with that id and the
-    same question and answer is skipped. A later Spark with that id and a
-    different question or answer raises SparkFileError. Does not return a
+    same question, answer, and type is skipped. A later Spark with that id and
+    a different question, answer, or type raises SparkFileError. Does not return a
     partial tuple. A non-Spark raises TypeError.
 
     Does not read the filesystem and does not rehash.
@@ -130,8 +153,10 @@ def connect(*groups: Iterable[Spark]) -> tuple[Spark, ...]:
                 first[spark.id] = spark
                 ordered.append(spark)
                 continue
-            if kept.question != spark.question or kept.answer != spark.answer:
-                raise SparkFileError("same id with a different question or answer")
+            if (kept.question, kept.answer, kept.type) != (
+                spark.question, spark.answer, spark.type
+            ):
+                raise SparkFileError("same id with a different question, answer, or type")
     return tuple(ordered)
 
 

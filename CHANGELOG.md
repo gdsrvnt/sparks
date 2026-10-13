@@ -8,10 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Ids are back as an optional `id` key in `spark.schema.json` (`^[0-9a-f]{16}$`). `bin/sparks entry add` computes it on insertion and writes it; a replacement keeps a stored id. The hash is XXH64 (seed 0) over the same preimage, from the new dependency-free `spark_hash.py` (pure standard library), replacing SHA-256. Files without ids stay valid.
 - `skills/spark-verification/SKILL.md`: replaced the create/maintain adapter (headless and interactive modes that could edit the tree or open PRs) with a short read-only skill that verifies every file in a PR or branch diff against the `sparks.json` files that apply to each changed file's directory, reporting violations with the file and the quoted spark. Old skill parked on branch `spark-verification-rework` ([#56](https://github.com/gdsrvnt/sparks/issues/56); [Discussion #45](https://github.com/gdsrvnt/sparks/discussions/45)). Updated `README.md`, `THIRD_PARTY_NOTICES.md`, and the `sparks-discuss` hand-off.
 - `skills/spark-voice/SKILL.md` hang-up: instead of only telling the user to run `sparks-postcall`, open that skill's `SKILL.md` and follow it (or ask for `/sparks-postcall` if unreadable), and hand it the transcript paths. The post-call protocol still lives only in `sparks-postcall`.
 - Renamed `skills/use-herdr/` to `skills/herdr-operations/` (frontmatter `name: herdr-operations`). Updated references in `skills/sparks-postcall/SKILL.md` and `README.md`.
-- `spark.schema.json`: `type` must be one of `S`, `P`, `A`, `R`, or `K`. Records no longer have an `id` key. `spark.json`, `spark_id.py`, and `bin/sparks` follow that shape. The derived id is still printed on add, but it is not stored.
+- `spark.schema.json`: `type` must be one of `S`, `P`, `A`, `R`, or `K`. `spark.json`, `spark_id.py`, and `bin/sparks` follow that shape.
 
 ### Removed
 

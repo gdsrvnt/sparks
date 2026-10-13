@@ -6,7 +6,6 @@
 """Tests for bin/sparks. Run them with ``uv run tests/test_sparks.py``."""
 
 import errno
-import hashlib
 import importlib.machinery
 import importlib.util
 import json
@@ -25,6 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "bin" / "sparks"
 sys.path.insert(0, str(ROOT))
 
+import spark_hash  # noqa: E402
 import spark_id  # noqa: E402
 
 posix = pytest.mark.skipif(os.name != "posix", reason="needs POSIX modes, signals, or flock")
@@ -51,6 +51,11 @@ def spark(question="Why is main protected?", answer="Every merge must pass CI fi
 
 def record_id(record):
     return spark_id.Spark(record["question"], record["answer"], record["type"]).id
+
+
+def stored(record):
+    """A record the way sparks entry add writes it: with its id as the last key."""
+    return {**record, "id": record_id(record)}
 
 
 FIRST = spark()
@@ -120,7 +125,7 @@ def test_creates_a_missing_file_with_the_record(tmp_path):
     assert result.returncode == 0, result.stderr
     assert result.stdout == f"added {record_id(FIRST)} to {path}\n"
     assert result.stderr == ""
-    assert json.loads(path.read_bytes()) == [FIRST]
+    assert json.loads(path.read_bytes()) == [stored(FIRST)]
     assert others(tmp_path) == []
 
 
@@ -128,6 +133,7 @@ def test_output_matches_the_repo_example_byte_for_byte(tmp_path):
     example = ROOT / "spark.json"
     path = tmp_path / "sparks.json"
     (record,) = json.loads(example.read_bytes())
+    del record["id"]  # sparks assigns the id on add
     assert add(path, record).returncode == 0
     # A Windows checkout may have turned the example's line endings into CRLF.
     assert path.read_bytes() == example.read_bytes().replace(b"\r\n", b"\n")
@@ -138,7 +144,7 @@ def test_default_path_is_sparks_json_in_the_working_directory(tmp_path):
         result = sparks("entry", "add", "--json", json.dumps(record), cwd=tmp_path)
         assert result.returncode == 0, result.stderr
         assert result.stdout == f"added {record_id(record)} to sparks.json\n"
-    assert json.loads((tmp_path / "sparks.json").read_bytes()) == [FIRST, SECOND]
+    assert json.loads((tmp_path / "sparks.json").read_bytes()) == [stored(FIRST), stored(SECOND)]
     assert others(tmp_path) == []
 
 
@@ -148,7 +154,7 @@ def test_relative_path_resolves_against_the_working_directory(tmp_path):
         "entry", "add", "--path", "docs/notes.json", "--json", json.dumps(FIRST), cwd=tmp_path
     )
     assert result.returncode == 0, result.stderr
-    assert json.loads((tmp_path / "docs" / "notes.json").read_bytes()) == [FIRST]
+    assert json.loads((tmp_path / "docs" / "notes.json").read_bytes()) == [stored(FIRST)]
 
 
 def test_appends_after_existing_records_and_keeps_them(tmp_path):
@@ -160,7 +166,7 @@ def test_appends_after_existing_records_and_keeps_them(tmp_path):
     assert add(path, SECOND).returncode == 0
     assert add(path, third).returncode == 0
     records = json.loads(path.read_bytes())
-    assert records == [FIRST, SECOND, third]
+    assert records == [FIRST, stored(SECOND), stored(third)]
     assert list(records[0]) == ["answer", "question", "type"]
 
 
@@ -168,7 +174,7 @@ def test_new_record_is_stored_in_schema_key_order(tmp_path):
     path = tmp_path / "sparks.json"
     shuffled = json.dumps({key: FIRST[key] for key in ("answer", "question", "type")})
     assert add(path, shuffled).returncode == 0
-    assert list(json.loads(path.read_bytes())[0]) == ["type", "question", "answer"]
+    assert list(json.loads(path.read_bytes())[0]) == ["type", "question", "answer", "id"]
 
 
 def test_non_ascii_is_kept_verbatim_and_hashed_by_the_spec_rule(tmp_path):
@@ -181,13 +187,13 @@ def test_non_ascii_is_kept_verbatim_and_hashed_by_the_spec_rule(tmp_path):
         ensure_ascii=False,
     )
     record = {"type": "s", "question": question, "answer": answer}
-    assert record_id(record) == hashlib.sha256(preimage.encode("utf-8")).hexdigest()[-16:]
+    assert record_id(record) == spark_hash.xxh64_hexdigest(preimage.encode("utf-8"))
     path = tmp_path / "sparks.json"
     result = add(path, record)
     assert result.returncode == 0, result.stderr
     text = path.read_bytes().decode("utf-8")
     assert question in text and answer in text  # no \u escapes
-    assert json.loads(text) == [record]
+    assert json.loads(text) == [stored(record)]
 
 
 
@@ -196,7 +202,7 @@ def test_type_is_accepted_in_any_case_and_written_lowercase(tmp_path, spark_type
     path = tmp_path / "sparks.json"
     result = add(path, spark(spark_type=spark_type))
     assert result.returncode == 0, result.stderr
-    assert json.loads(path.read_bytes()) == [spark(spark_type=spark_type.lower())]
+    assert json.loads(path.read_bytes()) == [stored(spark(spark_type=spark_type.lower()))]
     assert spark_id.Spark("q", "a", spark_type).id == spark_id.Spark("q", "a", spark_type.lower()).id
 
 
@@ -206,7 +212,7 @@ def test_legacy_uppercase_file_is_read_and_rewritten_lowercase(tmp_path):
     assert len(spark_id.load(path)) == 1
     result = add(path, SECOND)
     assert result.returncode == 0, result.stderr
-    assert json.loads(path.read_bytes()) == [spark(spark_type="p"), SECOND]
+    assert json.loads(path.read_bytes()) == [spark(spark_type="p"), stored(SECOND)]
 
 @pytest.mark.parametrize("spark_type", ["s", "r"])
 def test_exact_question_replaces_whole_record_in_place(tmp_path, spark_type):
@@ -217,7 +223,7 @@ def test_exact_question_replaces_whole_record_in_place(tmp_path, spark_type):
     result = add(path, revised)
     assert result.returncode == 0, result.stderr
     assert result.stdout == f"added {record_id(revised)} to {path}\n"
-    assert json.loads(path.read_bytes()) == [SECOND, revised, third]
+    assert json.loads(path.read_bytes()) == [SECOND, stored(revised), third]
     assert record_id(revised) != record_id(FIRST)
     assert others(tmp_path) == []
 
@@ -232,7 +238,7 @@ def test_non_exact_questions_append_without_normalization(tmp_path, question):
     seed(path, [original])
     incoming = spark(question)
     assert add(path, incoming).returncode == 0
-    assert json.loads(path.read_bytes()) == [original, incoming]
+    assert json.loads(path.read_bytes()) == [original, stored(incoming)]
 
 
 def test_json_escape_spelling_does_not_change_question_identity(tmp_path):
@@ -241,7 +247,7 @@ def test_json_escape_spelling_does_not_change_question_identity(tmp_path):
     seed(path, [original])
     revised = spark(original["question"], "Updated.")
     assert add(path, json.dumps(revised, ensure_ascii=True)).returncode == 0
-    assert json.loads(path.read_bytes()) == [revised]
+    assert json.loads(path.read_bytes()) == [stored(revised)]
 
 
 @pytest.mark.parametrize("incoming", [FIRST, spark(FIRST["question"], "Updated.")])
@@ -279,7 +285,7 @@ def test_concurrent_adds_of_same_question_leave_one_record(tmp_path):
         assert stdout.startswith(b"added ")
     written = json.loads(path.read_bytes())
     assert len(written) == 1
-    assert written[0] in records
+    assert {k: v for k, v in written[0].items() if k != "id"} in records
     assert others(tmp_path) == []
 
 
@@ -296,7 +302,7 @@ def test_written_file_passes_spark_id_and_the_schema(tmp_path):
 def test_a_file_name_near_the_length_limit_works(tmp_path):
     path = tmp_path / ("s" * 246 + ".json")  # 251 bytes; most file systems allow 255
     assert add(path, FIRST).returncode == 0
-    assert json.loads(path.read_bytes()) == [FIRST]
+    assert json.loads(path.read_bytes()) == [stored(FIRST)]
     assert others(tmp_path, path.name) == []
 
 
@@ -355,8 +361,8 @@ BAD_INPUT = [
     ),
     pytest.param(
         _payload(id="0" * 16),
-        "--json: Additional properties are not allowed ('id' was unexpected)",
-        id="id-not-a-key",
+        "--json: id is assigned by sparks on add; leave it out",
+        id="id-assigned-by-sparks",
     ),
     pytest.param(
         _payload(question="\ud800"),
@@ -403,9 +409,19 @@ BAD_FILES = [
     pytest.param(b"[1]", "[0]: 1 is not of type 'object'", id="not-a-record"),
     pytest.param(b"[NaN]", "NaN is not valid JSON", id="nan"),
     pytest.param(
-        json.dumps([{**FIRST, "id": "0" * 16}]).encode(),
-        "[0]: Additional properties are not allowed ('id' was unexpected)",
-        id="stored-id",
+        json.dumps([{**FIRST, "id": "0" * 15}]).encode(),
+        "[0].id: '000000000000000' is too short",
+        id="short-id",
+    ),
+    pytest.param(
+        json.dumps([{**FIRST, "id": "A" * 16}]).encode(),
+        "[0].id: 'AAAAAAAAAAAAAAAA' does not match",
+        id="uppercase-id",
+    ),
+    pytest.param(
+        json.dumps([{**FIRST, "extra": 1}]).encode(),
+        "[0]: Additional properties are not allowed ('extra' was unexpected)",
+        id="extra-key",
     ),
     pytest.param(json.dumps([FIRST, FIRST]).encode(), "duplicate id", id="duplicate-record"),
     pytest.param(
@@ -454,7 +470,7 @@ def test_schema_problems_are_capped_and_clipped(tmp_path):
 
 def test_identical_add_succeeds_without_rewriting(tmp_path):
     path = tmp_path / "sparks.json"
-    path.write_text(json.dumps([FIRST, SECOND]), encoding="utf-8")
+    path.write_text(json.dumps([stored(FIRST), SECOND]), encoding="utf-8")
     before = path.read_bytes()
     inode = path.stat().st_ino
     result = add(path, FIRST)
@@ -518,7 +534,7 @@ def test_writes_through_a_symlink(tmp_path):
     link.symlink_to("shared.json")
     assert add(link, SECOND).returncode == 0
     assert link.is_symlink()
-    assert json.loads(shared.read_bytes()) == [FIRST, SECOND]
+    assert json.loads(shared.read_bytes()) == [FIRST, stored(SECOND)]
 
 
 @posix
@@ -637,7 +653,7 @@ def test_kill_before_replace_keeps_the_old_file_and_the_next_add_works(tmp_path)
     assert temp.startswith(".sparks-") and temp.endswith(".tmp")
     # The dead process's lock went with it; the next add takes the file and removes it.
     assert add(path, SECOND).returncode == 0
-    assert json.loads(path.read_bytes()) == [FIRST, SECOND]
+    assert json.loads(path.read_bytes()) == [FIRST, stored(SECOND)]
     assert others(tmp_path) == [temp]
 
 
@@ -690,7 +706,7 @@ def test_concurrent_adds_all_land(tmp_path):
     ]
     assert [child.wait(timeout=120) for child in children] == [0] * len(records)
     written = json.loads((tmp_path / "sparks.json").read_bytes())
-    assert sorted(written, key=lambda r: r["question"]) == sorted(records, key=lambda r: r["question"])
+    assert sorted(written, key=lambda r: r["question"]) == sorted(map(stored, records), key=lambda r: r["question"])
     assert others(tmp_path) == []
 
 
@@ -725,7 +741,7 @@ def test_an_add_waits_for_the_lock_file_the_path_names(tmp_path):
         if child.poll() is None:
             child.kill()
             child.wait()
-    assert json.loads(path.read_bytes()) == [FIRST, SECOND]
+    assert json.loads(path.read_bytes()) == [FIRST, stored(SECOND)]
     assert others(tmp_path) == []
 
 
@@ -742,7 +758,7 @@ def test_closed_stdout_does_not_turn_a_write_into_a_failure(tmp_path):
         preexec_fn=lambda: os.close(1),
     )
     assert (result.returncode, result.stderr) == (0, "")
-    assert json.loads(path.read_bytes()) == [FIRST]
+    assert json.loads(path.read_bytes()) == [stored(FIRST)]
 
 
 @posix
@@ -760,7 +776,7 @@ def test_broken_pipe_on_stdout_does_not_turn_a_write_into_a_failure(tmp_path):
     finally:
         os.close(write_end)
     assert (result.returncode, result.stderr) == (0, "")
-    assert json.loads(path.read_bytes()) == [FIRST]
+    assert json.loads(path.read_bytes()) == [stored(FIRST)]
 
 
 def test_a_path_stdout_cannot_encode_is_escaped(tmp_path):
@@ -768,7 +784,7 @@ def test_a_path_stdout_cannot_encode_is_escaped(tmp_path):
     result = add(path, FIRST, env={"PYTHONIOENCODING": "ascii:strict"})
     shown = str(path).encode("ascii", "backslashreplace").decode("ascii")
     assert (result.returncode, result.stdout) == (0, f"added {record_id(FIRST)} to {shown}\n")
-    assert json.loads(path.read_bytes()) == [FIRST]
+    assert json.loads(path.read_bytes()) == [stored(FIRST)]
 
 
 # help and the uv entry point
@@ -783,7 +799,7 @@ def test_help_shows_the_usage_exit_codes_and_exact_replace_semantics(tmp_path):
     )
     assert "An exact question match replaces the entire record" in result.stdout
     assert "Multiple exact matches are" in result.stdout
-    assert "An identical record succeeds without rewriting." in result.stdout
+    assert "An identical record that already has its id" in result.stdout
 
 
 @posix
@@ -797,7 +813,7 @@ def test_runs_as_an_executable_uv_script(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == f"added {record_id(FIRST)} to sparks.json\n"
-    assert json.loads((tmp_path / "sparks.json").read_bytes()) == [FIRST]
+    assert json.loads((tmp_path / "sparks.json").read_bytes()) == [stored(FIRST)]
 
 
 
@@ -856,6 +872,98 @@ def test_blocker_clearing_rule_is_still_packaged():
     assert "alwaysApply: true" in text
     assert "Stop and deliberate" in text
     assert "sparks-discuss" in text
+
+
+# ids
+
+def test_add_writes_the_xxh64_id_and_prints_it(tmp_path):
+    path = tmp_path / "sparks.json"
+    result = add(path, FIRST)
+    (written,) = json.loads(path.read_bytes())
+    preimage = json.dumps(
+        {"answer": FIRST["answer"], "question": FIRST["question"], "type": "s"},
+        sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    ).encode("utf-8")
+    assert written["id"] == spark_hash.xxh64_hexdigest(preimage)
+    assert result.stdout == f"added {written['id']} to {path}\n"
+    assert list(written) == ["type", "question", "answer", "id"]
+
+
+def test_file_without_ids_stays_valid_and_add_backfills_the_matched_id(tmp_path):
+    path = tmp_path / "sparks.json"
+    before = seed(path, [FIRST, SECOND])
+    assert spark_id.main(["spark_id.py", str(path)]) == 0
+    assert add(path, SECOND).returncode == 0
+    records = json.loads(path.read_bytes())
+    assert records == [FIRST, stored(SECOND)]
+    assert before != path.read_bytes()
+
+
+def test_replacement_keeps_a_stored_id(tmp_path):
+    path = tmp_path / "sparks.json"
+    seed(path, [stored(FIRST)])
+    revised = spark(FIRST["question"], "Updated.")
+    result = add(path, revised)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == f"added {record_id(FIRST)} to {path}\n"
+    assert json.loads(path.read_bytes()) == [{**revised, "id": record_id(FIRST)}]
+
+
+def test_stored_id_is_not_recomputed_on_load(tmp_path):
+    path = tmp_path / "sparks.json"
+    seed(path, [{**FIRST, "id": "0123456789abcdef"}])
+    (loaded,) = spark_id.load(path)
+    assert loaded.id == "0123456789abcdef"
+
+
+def test_duplicate_stored_ids_are_refused(tmp_path):
+    path = tmp_path / "sparks.json"
+    seed(path, [{**FIRST, "id": "0" * 16}, {**SECOND, "id": "0" * 16}])
+    with pytest.raises(spark_id.SparkFileError, match="duplicate id"):
+        spark_id.load(path)
+
+
+def test_example_id_is_pinned():
+    (record,) = json.loads((ROOT / "spark.json").read_bytes())
+    assert record["id"] == record_id({k: record[k] for k in ("type", "question", "answer")})
+
+
+def test_hash_script_has_no_dependencies():
+    text = (ROOT / "spark_hash.py").read_text(encoding="utf-8")
+    assert "# dependencies = []" in text
+    imports = {line.split()[1].split(".")[0] for line in text.splitlines()
+               if line.startswith(("import ", "from "))}
+    assert imports <= {"struct", "sys", "__future__"}, imports
+
+
+
+def test_load_does_not_rehash_a_stored_id(tmp_path, monkeypatch):
+    path = tmp_path / "sparks.json"
+    expected = record_id(FIRST)
+    seed(path, [stored(FIRST)])
+
+    def fail(*args):
+        raise AssertionError("derive_id called for a stored id")
+
+    monkeypatch.setattr(spark_id, "derive_id", fail)
+    assert spark_id.load(path)[0].id == expected
+
+
+@pytest.mark.parametrize("bad", [None, 1, "0123456789abcdef\n", "0" * 17])
+def test_load_refuses_a_malformed_stored_id(tmp_path, bad):
+    path = tmp_path / "sparks.json"
+    seed(path, [{**FIRST, "id": bad}])
+    with pytest.raises(spark_id.SparkFileError, match="id must be"):
+        spark_id.load(path)
+    schema = json.loads((ROOT / "spark.schema.json").read_bytes())
+    assert not Draft202012Validator(schema).is_valid([{**FIRST, "id": bad}])
+
+
+def test_connect_refuses_a_type_only_change_under_one_id():
+    old = spark_id.Spark(FIRST["question"], FIRST["answer"], "S", "0" * 16)
+    new = spark_id.Spark(FIRST["question"], FIRST["answer"], "R", "0" * 16)
+    with pytest.raises(spark_id.SparkFileError, match="type"):
+        spark_id.connect([old], [new])
 
 
 if __name__ == "__main__":

@@ -7,7 +7,8 @@
 """``sparks entry add`` adds or replaces one SPARK record by exact question.
 
 The record shape comes from ``spark.schema.json``. ``spark_id.py`` derives
-the content id printed after a successful add. Neither id nor extra keys are stored.
+the id (XXH64 via the dependency-free ``spark_hash.py``), and add stores it
+as the record's optional ``id`` key.
 Both modules are read from the repository root, the parent of ``bin/``.
 """
 
@@ -48,14 +49,18 @@ Add or replace one SPARK record in a spark file.
 
 The record must match spark.schema.json: type is s, p, a, r, or k (any case
 on input; written lowercase), with a
-question and an answer, and no id key. spark_id.py still derives an id, the
-last 16 hex characters of SHA-256 over the compact, key-sorted JSON of answer,
-question, and type. That id is printed, not stored. A missing file is
+question and an answer. Do not pass an id: sparks assigns it on insertion,
+as XXH64 (seed 0, 16 lowercase hex) of the compact, key-sorted JSON of answer,
+question, and type, computed by the bundled, dependency-free spark_hash.py.
+The id is written as the record's last key and printed. A replacement keeps
+the id the record already stored, so references to it stay valid; a stored
+record without one gets one. A missing file is
 created as [] plus the record. An existing file must itself be valid.
 An exact question match replaces the entire record in its current position,
 even if type changes; no match appends. Matching uses decoded strings without
 trimming, case folding, or Unicode normalization. Multiple exact matches are
-refused without writing. An identical record succeeds without rewriting.
+refused without writing. An identical record that already has its id
+succeeds without rewriting.
 The new file is written to a temp file in the same
 directory, validated, moved into place with os.replace, then re-read and
 validated again."""
@@ -176,6 +181,8 @@ def parse_record(text: str) -> dict[str, str]:
     if not isinstance(record, dict):
         raise Rejected("--json", "expected one JSON object, a single SPARK record")
     _lower_type(record)
+    if "id" in record:
+        raise Rejected("--json", "id is assigned by sparks on add; leave it out")
     # The schema describes the file, so check the record as a one-item file.
     problems = _schema_problems([record], skip=1)
     if problems:
@@ -306,7 +313,7 @@ def _existing(target: Path, label: str) -> tuple[list[dict[str, str]], int]:
 
 
 def add(path: Path, record_json: str) -> str:
-    """Add or replace by exact question in the file at path and return its content id."""
+    """Add or replace by exact question in the file at path and return the record's id."""
     record = parse_record(record_json)
     label = _show(path)
     try:
@@ -335,10 +342,13 @@ def add(path: Path, record_json: str) -> str:
             )
         if matches:
             index = matches[0]
+            kept_id = records[index].get("id", incoming.id)
+            record = {**record, "id": kept_id}
             if records[index] == record:
-                return incoming.id
+                return kept_id
             records[index] = record
         else:
+            record = {**record, "id": incoming.id}
             records.append(record)
         _write_atomic(target, render(records), mode, label)
         try:
@@ -349,7 +359,7 @@ def add(path: Path, record_json: str) -> str:
         if written != records:
             problem = "written, but another program changed it before it was read back"
             raise Rejected(label, problem, UNVERIFIED)
-    return incoming.id
+    return record["id"]
 
 
 def _parser() -> argparse.ArgumentParser:
