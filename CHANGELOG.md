@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `skills/spark-verification/`: runs the bundled `create-verification-skill` or `maintain-verification-skill` with the project's sparks as ammunition, in a headless mode (every spark) or an interactive mode (`sparks-discuss` first, then the sparks it wrote).
 - `skills/create-verification-skill/` and `skills/maintain-verification-skill/`, bundled unchanged from poteto's pstack at commit `118e73b`. Each has her MIT `LICENSE` next to its `SKILL.md`. They are not in `.github/upstreams.json`.
 - A `THIRD_PARTY_NOTICES.md` entry for `skills/grill-me/` (Matt Pocock, MIT).
+- `skills/sparks-domain/`: the `sparks-discuss` interview with domain modeling built in. It challenges terms against `sparks.json`, sharpens fuzzy language, stress-tests concepts with scenarios, and checks them against the code. Each settled term or decision goes into `sparks.json` through `bin/sparks entry add`, never into `GLOSSARY.md`, `CONTEXT.md`, or ADR files. Adapted from Matt Pocock's `domain-modeling` skill at `v1.3.1` (MIT, `LICENSE` next to its `SKILL.md`).
 - `skills/spark-voice/`: the voice mode protocol for Grok Bot, for working with Sparks over a phone or voice call. It holds the call start handshake and dictation mode inline, then runs `sparks-discuss`. The model may invoke it.
 
 ## [0.1.0] - 2026-10-12 (plugin package)
