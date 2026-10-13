@@ -30,7 +30,7 @@ Discovery uses the default folders. The manifest does not set custom component p
 
 | Component | Path | Status |
 | --- | --- | --- |
-| Skills | `skills/` | `sparks-discuss`, `spark-voice`, `spark-verification`, `study`, and `grill-me`; `ketchup`, `how`, `why`, `teach`, `bro`, `create-verification-skill`, and `maintain-verification-skill` from poteto's pstack; and `show-me` from HumanLayer. See `THIRD_PARTY_NOTICES.md`. |
+| Skills | `skills/` | `sparks-discuss`, `sparks-domain`, `spark-voice`, `spark-verification`, `study`, and `grill-me`; `ketchup`, `how`, `why`, `teach`, `bro`, `create-verification-skill`, and `maintain-verification-skill` from poteto's pstack; and `show-me` from HumanLayer. See `THIRD_PARTY_NOTICES.md`. |
 | Rules | `rules/` | Not included. |
 | Agents | `agents/` | Not included. |
 | Commands | `commands/` | Not included. |
@@ -188,10 +188,10 @@ Spark also helps to keep a project on the rails because it encompasses the five 
 ## Credits
 
 - [Lauren Tan (@poteto)](https://github.com/poteto), who wrote the pstack skills in this plugin: `ketchup`, `how`, `why`, `teach`, `bro`, `create-verification-skill`, and `maintain-verification-skill`. `spark-verification` is an adapter over the last two.
-- [Matt Pocock (@mattpocock)](https://github.com/mattpocock), whose `grilling` skill is the basis for `grill-me` and for the grilling core of `sparks-discuss`.
+- [Matt Pocock (@mattpocock)](https://github.com/mattpocock), whose `grilling` skill is the basis for `grill-me` and for the grilling core of `sparks-discuss`, and whose `domain-modeling` skill is the basis for `sparks-domain`.
 
 ## License
 
 MIT. Copyright (c) 2026 gdsrvnt. See `LICENSE`. That license covers this project's own work.
 
-Third-party skills keep their authors' copyright and MIT licenses. Lauren Tan's skills are MIT, Copyright (c) 2026 Lauren Tan. `create-verification-skill` and `maintain-verification-skill` each carry her license in a `LICENSE` file next to their `SKILL.md`, and her other skills share `skills/LICENSE-poteto`. Matt Pocock's license is in `skills/LICENSE-mattpocock`, and HumanLayer's is in `skills/LICENSE-humanlayer`. See `THIRD_PARTY_NOTICES.md`.
+Third-party skills keep their authors' copyright and MIT licenses. Lauren Tan's skills are MIT, Copyright (c) 2026 Lauren Tan. `create-verification-skill` and `maintain-verification-skill` each carry her license in a `LICENSE` file next to their `SKILL.md`, and her other skills share `skills/LICENSE-poteto`. Matt Pocock's license is in `skills/LICENSE-mattpocock`, and `sparks-domain` also carries it in a `LICENSE` file next to its `SKILL.md`. HumanLayer's license is in `skills/LICENSE-humanlayer`. See `THIRD_PARTY_NOTICES.md`.
