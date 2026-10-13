@@ -15,7 +15,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-TYPES = ("S", "P", "A", "R", "K")
+TYPES = ("s", "p", "a", "r", "k")
 
 
 class SparkFileError(Exception):
@@ -37,14 +37,16 @@ class Spark:
 
     question: str
     answer: str
-    type: str = "S"
+    type: str = "s"
     id: str = field(init=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.question, str) or not isinstance(self.answer, str):
             raise TypeError("question and answer must be str")
+        if isinstance(self.type, str):  # any case is accepted; the canonical type is lowercase
+            object.__setattr__(self, "type", self.type.lower())
         if self.type not in TYPES:
-            raise SparkFileError("type must be one of S, P, A, R, K")
+            raise SparkFileError("type must be one of s, p, a, r, k (any case)")
         try:
             digest = hashlib.sha256(
                 _preimage(self.question, self.answer, self.type)
@@ -89,12 +91,13 @@ def load(path: Path) -> tuple[Spark, ...]:
         question = item["question"]
         answer = item["answer"]
         if (
-            wire_type not in TYPES
+            not isinstance(wire_type, str)
+            or wire_type.lower() not in TYPES
             or not isinstance(question, str)
             or not isinstance(answer, str)
         ):
             raise SparkFileError(
-                "type must be one of S, P, A, R, K, and question and answer must be strings"
+                "type must be one of s, p, a, r, k (any case), and question and answer must be strings"
             )
         built = Spark(question, answer, wire_type)
         if built.id in seen:

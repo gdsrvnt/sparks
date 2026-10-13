@@ -46,7 +46,8 @@ UNVERIFIED = 3  # exit status: written, but reading it back did not give what wa
 ADD_DESCRIPTION = """\
 Add or replace one SPARK record in a spark file.
 
-The record must match spark.schema.json: type is S, P, A, R, or K, with a
+The record must match spark.schema.json: type is s, p, a, r, or k (any case
+on input; written lowercase), with a
 question and an answer, and no id key. spark_id.py still derives an id, the
 last 16 hex characters of SHA-256 over the compact, key-sorted JSON of answer,
 question, and type. That id is printed, not stored. A missing file is
@@ -163,11 +164,18 @@ def _schema_problems(instance: object, skip: int = 0) -> str:
     return "; ".join(shown)
 
 
+def _lower_type(record: object) -> None:
+    """Accept a type in any case on input; the canonical, written form is lowercase."""
+    if isinstance(record, dict) and isinstance(record.get("type"), str):
+        record["type"] = record["type"].lower()
+
+
 def parse_record(text: str) -> dict[str, str]:
     """The --json record, checked, with keys in the order type, question, answer."""
     record = _parse(text, "--json")
     if not isinstance(record, dict):
         raise Rejected("--json", "expected one JSON object, a single SPARK record")
+    _lower_type(record)
     # The schema describes the file, so check the record as a one-item file.
     problems = _schema_problems([record], skip=1)
     if problems:
@@ -188,6 +196,9 @@ def read_file(path: Path, label: str) -> list[dict[str, str]]:
     except UnicodeDecodeError as exc:
         raise Rejected(label, "file is not UTF-8") from exc
     records = _parse(text, label)
+    if isinstance(records, list):
+        for record in records:
+            _lower_type(record)
     problems = _schema_problems(records)
     if problems:
         raise Rejected(label, problems)
@@ -369,7 +380,7 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
         dest="record",
         metavar="<json>",
-        help='one record: {"type": "S"|"P"|"A"|"R"|"K", "question": ..., "answer": ...}',
+        help='one record: {"type": "s"|"p"|"a"|"r"|"k", "question": ..., "answer": ...}',
     )
     return parser
 

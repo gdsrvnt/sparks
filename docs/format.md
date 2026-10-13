@@ -2,7 +2,7 @@
 
 Question and answer records. An id can be recomputed, but the file does not store it.
 
-Spark is for a person or an agent who keeps context in a file next to the code. Each record is one question and one answer. The type is one letter: S, P, A, R, or K. `spark_id.py` can still hash the record. That hash is the last 16 characters of a SHA-256 of one JSON object. That object holds the answer, the question, and the type, with keys in alphabetical order and no extra whitespace. Use Spark when the question and the answer identify the note, and the file may move between directories.
+Spark is for a person or an agent who keeps context in a file next to the code. Each record is one question and one answer. The type is one lowercase letter: s, p, a, r, or k. `bin/sparks` accepts any case and writes lowercase. `spark_id.py` can still hash the record. That hash is the last 16 characters of a SHA-256 of one JSON object. That object holds the answer, the question, and the type, with keys in alphabetical order and no extra whitespace. Use Spark when the question and the answer identify the note, and the file may move between directories.
 
 The repository is named sparks. The format is named Spark.
 
@@ -10,7 +10,7 @@ The repository is named sparks. The format is named Spark.
 
 | Key | Rule |
 | --- | --- |
-| `type` | One of `S`, `P`, `A`, `R`, `K` |
+| `type` | One of `s`, `p`, `a`, `r`, `k` (lowercase) |
 | `question` | A string |
 | `answer` | A string |
 
