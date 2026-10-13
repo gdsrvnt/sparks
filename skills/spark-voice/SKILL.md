@@ -72,7 +72,7 @@ About every 20 minutes, add a one-line ledger of the requests so far.
 While dictation mode is on, hold any due recital, ledger, or insights entry until the next "over" or "deactivate dictation mode" confirmation, then give it there. A "call start protocol" relay is always answered at once.
 
 ### Hang-up
-At hang-up, stop the timer. This skill does no post-call work. In one chat message, tell the user to run the post-call skill ([`sparks-postcall`](../sparks-postcall/SKILL.md), the post-call to-spec skill), and give it:
+At hang-up, stop the timer. This skill does no post-call work. The post-call protocol lives only in `sparks-postcall`. Open the plugin's [`skills/sparks-postcall/SKILL.md`](../sparks-postcall/SKILL.md) and follow it in full (or ask the user to run `/sparks-postcall` if you cannot open that file). In the hang-up message, hand that procedure:
 - the path of the voice insights log,
 - the path of the reworded-chunks list (dictation chunks and interrogation questions marked possibly reworded),
 - If dictation mode is still on, treat the hang-up as "deactivate dictation mode": insert and save the pending passage, add it to the reworded-chunks list as unterminated, and list it here. If the interrogation flow is on, record any question already confirmed, then give the pool file's path and its recorded, skipped, held, and left counts.

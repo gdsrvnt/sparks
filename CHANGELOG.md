@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- `skills/spark-voice/SKILL.md` hang-up: instead of only telling the user to run `sparks-postcall`, open that skill's `SKILL.md` and follow it (or ask for `/sparks-postcall` if unreadable), and hand it the transcript paths. The post-call protocol still lives only in `sparks-postcall`.
 - Renamed `skills/use-herdr/` to `skills/herdr-operations/` (frontmatter `name: herdr-operations`). Updated references in `skills/sparks-postcall/SKILL.md` and `README.md`.
 - `spark.schema.json`: `type` must be one of `S`, `P`, `A`, `R`, or `K`. Records no longer have an `id` key. `spark.json`, `spark_id.py`, and `bin/sparks` follow that shape. The derived id is still printed on add, but it is not stored.
 
@@ -19,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- `rules/post-call-self-healing.mdc`, an always-on rule: after every voice call ends (`spark-voice` hang-up), run the `sparks-postcall` self-healing procedure in full. Because `sparks-postcall` sets `disable-model-invocation`, the rule says to open `skills/sparks-postcall/SKILL.md` and follow it, or ask the user to run `/sparks-postcall`. The post-call protocol lives only in `sparks-postcall`, not in `spark-voice`.
 - `.github/workflows/priority-label.yml` and `CONTRIBUTING.md`: every issue and every open (non-draft) PR must carry exactly one priority label (`low`, `medium`, `high`, `urgent`). The `priority-label` check fails otherwise, and on issues comments once asking for one. Drafts are exempt.
 - `rules/blocker-clearing.mdc`, an always-on rule: when work is blocked on the user, ask one multiple-choice question with clearing options, a free-text field, and a stop-and-deliberate option that runs `sparks-discuss` and records the outcome as a spark.
 - `bin/sparks entry add [--path <path>] --json <json>`, a uv script that adds or replaces one SPARK record in `./sparks.json` or `--path`. It checks the record against `spark.schema.json` and `spark_id.py`, replaces by exact decoded question regardless of type (keeping array position), appends if absent, and refuses ambiguous exact matches or an invalid existing file. Identical adds succeed without rewriting. It writes atomically, and on POSIX locks the directory so concurrent adds take turns ([#21](https://github.com/gdsrvnt/sparks/issues/21)).

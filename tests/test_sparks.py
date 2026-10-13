@@ -782,5 +782,39 @@ def test_runs_as_an_executable_uv_script(tmp_path):
     assert json.loads((tmp_path / "sparks.json").read_bytes()) == [FIRST]
 
 
+
+def test_post_call_self_healing_rule_is_packaged():
+    """The always-on rule ships and points agents at sparks-postcall after hang-up."""
+    rule = ROOT / "rules" / "post-call-self-healing.mdc"
+    text = rule.read_text(encoding="utf-8")
+    assert text.startswith("---\n")
+    assert "alwaysApply: true" in text
+    assert "description:" in text.split("---", 2)[1]
+    assert "sparks-postcall" in text
+    assert "disable-model-invocation" in text
+    assert "skills/sparks-postcall/SKILL.md" in text
+    assert "/sparks-postcall" in text
+    assert "not in `spark-voice`" in text
+
+
+def test_spark_voice_hang_up_hands_off_to_sparks_postcall():
+    """Hang-up does no post-call work and opens sparks-postcall consistently with the rule."""
+    voice = (ROOT / "skills" / "spark-voice" / "SKILL.md").read_text(encoding="utf-8")
+    hang = voice.split("### Hang-up", 1)[1].split("\n## ", 1)[0]
+    assert "This skill does no post-call work" in hang
+    assert "post-call protocol lives only in `sparks-postcall`" in hang
+    assert "../sparks-postcall/SKILL.md" in hang
+    assert "/sparks-postcall" in hang
+    assert "tell the user to run the post-call skill" not in hang
+
+
+def test_blocker_clearing_rule_is_still_packaged():
+    rule = ROOT / "rules" / "blocker-clearing.mdc"
+    text = rule.read_text(encoding="utf-8")
+    assert "alwaysApply: true" in text
+    assert "Stop and deliberate" in text
+    assert "sparks-discuss" in text
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-p", "no:cacheprovider", *sys.argv[1:]]))
