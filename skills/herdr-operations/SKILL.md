@@ -1,9 +1,9 @@
 ---
-name: use-herdr
+name: herdr-operations
 description: Run coding-agent work in herdr, a terminal multiplexer for coding agents. Claude Code runs Anthropic models and pi runs xAI (Grok) and OpenAI models, one agent per tab, with proactive check-ins. Use when the user runs coding agents in herdr and a task should be handed to one.
 ---
 
-# Use herdr
+# Herdr operations
 
 herdr is a terminal multiplexer for coding agents. It organizes **workspaces** (`w1`), **tabs** (`w1:t1`) and **panes** (`w1:p1`), recognizes the coding agent running in each pane, and reports its state: `idle`, `working`, `blocked`, `done` or `unknown`. You drive it with the `herdr` CLI, and most commands return JSON. Read IDs from those responses; never guess them.
 
