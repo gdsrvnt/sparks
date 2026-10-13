@@ -41,7 +41,7 @@ def _import_cli():
 cli = _import_cli()
 
 
-def spark(question="Why is main protected?", answer="Every merge must pass CI first.", spark_type="S"):
+def spark(question="Why is main protected?", answer="Every merge must pass CI first.", spark_type="s"):
     return {
         "type": spark_type,
         "question": question,
@@ -175,12 +175,12 @@ def test_non_ascii_is_kept_verbatim_and_hashed_by_the_spec_rule(tmp_path):
     question = "¿Por qué “verbatim”?"
     answer = "Naïve café prose — 日本語 🙂, kept as written."
     preimage = json.dumps(
-        {"answer": answer, "question": question, "type": "S"},
+        {"answer": answer, "question": question, "type": "s"},
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
     )
-    record = {"type": "S", "question": question, "answer": answer}
+    record = {"type": "s", "question": question, "answer": answer}
     assert record_id(record) == hashlib.sha256(preimage.encode("utf-8")).hexdigest()[-16:]
     path = tmp_path / "sparks.json"
     result = add(path, record)
@@ -190,7 +190,25 @@ def test_non_ascii_is_kept_verbatim_and_hashed_by_the_spec_rule(tmp_path):
     assert json.loads(text) == [record]
 
 
-@pytest.mark.parametrize("spark_type", ["S", "R"])
+
+@pytest.mark.parametrize("spark_type", ["S", "s", "R", "k", "K"])
+def test_type_is_accepted_in_any_case_and_written_lowercase(tmp_path, spark_type):
+    path = tmp_path / "sparks.json"
+    result = add(path, spark(spark_type=spark_type))
+    assert result.returncode == 0, result.stderr
+    assert json.loads(path.read_bytes()) == [spark(spark_type=spark_type.lower())]
+    assert spark_id.Spark("q", "a", spark_type).id == spark_id.Spark("q", "a", spark_type.lower()).id
+
+
+def test_legacy_uppercase_file_is_read_and_rewritten_lowercase(tmp_path):
+    path = tmp_path / "sparks.json"
+    path.write_text(json.dumps([spark(spark_type="P")]), encoding="utf-8")
+    assert len(spark_id.load(path)) == 1
+    result = add(path, SECOND)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(path.read_bytes()) == [spark(spark_type="p"), SECOND]
+
+@pytest.mark.parametrize("spark_type", ["s", "r"])
 def test_exact_question_replaces_whole_record_in_place(tmp_path, spark_type):
     path = tmp_path / "sparks.json"
     third = spark("Another question?", "Another answer.")
@@ -229,7 +247,7 @@ def test_json_escape_spelling_does_not_change_question_identity(tmp_path):
 @pytest.mark.parametrize("incoming", [FIRST, spark(FIRST["question"], "Updated.")])
 def test_multiple_exact_matches_are_refused_without_writing(tmp_path, incoming):
     path = tmp_path / "sparks.json"
-    before = seed(path, [FIRST, SECOND, spark(FIRST["question"], "Old answer.", "R")])
+    before = seed(path, [FIRST, SECOND, spark(FIRST["question"], "Old answer.", "r")])
     assert_rejected(add(path, incoming), "2 records have the exact question")
     assert path.read_bytes() == before
     assert others(tmp_path) == []
@@ -320,12 +338,12 @@ BAD_INPUT = [
     ),
     pytest.param(
         _payload(type="spark"),
-        "--json: type: 'spark' is not one of ['S', 'P', 'A', 'R', 'K']",
+        "--json: type: 'spark' is not one of ['s', 'p', 'a', 'r', 'k']",
         id="wrong-type",
     ),
     pytest.param(
         _payload(type="SPARK"),
-        "--json: type: 'SPARK' is not one of ['S', 'P', 'A', 'R', 'K']",
+        "--json: type: 'spark' is not one of ['s', 'p', 'a', 'r', 'k']",
         id="type-spark-word",
     ),
     pytest.param(
@@ -364,7 +382,7 @@ def test_rejects_bad_json_without_touching_the_file(tmp_path, existing, payload,
 @posix
 def test_rejects_undecodable_argv_bytes_cleanly(tmp_path):
     path = tmp_path / "sparks.json"
-    payload = b'{"type": "S", "question": "\xff", "answer": "a"}'
+    payload = b'{"type": "s", "question": "\xff", "answer": "a"}'
     result = subprocess.run(
         [sys.executable, str(BIN), "entry", "add", "--path", str(path), "--json", payload],
         capture_output=True,
@@ -425,7 +443,7 @@ def test_schema_problems_are_capped_and_clipped(tmp_path):
         json.dumps([{**spark(f"Q{i}?", "A."), "type": "x"} for i in range(10)]).encode()
     )
     result = add(path, FIRST)
-    assert_rejected(result, "[2].type: 'x' is not one of ['S', 'P', 'A', 'R', 'K']; and 7 more")
+    assert_rejected(result, "[2].type: 'x' is not one of ['s', 'p', 'a', 'r', 'k']; and 7 more")
     assert result.stderr.count("is not one of") == 3
     huge = tmp_path / "package.json"  # an object, not a spark file
     huge.write_bytes(json.dumps({f"key{i}": "v" * 100 for i in range(10_000)}).encode())
@@ -626,7 +644,7 @@ def test_kill_before_replace_keeps_the_old_file_and_the_next_add_works(tmp_path)
 def test_invalid_new_content_never_replaces_the_file(tmp_path, monkeypatch, capsys):
     path = tmp_path / "sparks.json"
     before = seed(path, [FIRST])
-    monkeypatch.setattr(cli, "render", lambda records: '[{"type": "S"}]\n')
+    monkeypatch.setattr(cli, "render", lambda records: '[{"type": "s"}]\n')
     assert run_main(path, SECOND) == 1
     assert capsys.readouterr().err.startswith(f"sparks: {path} (new content): [0]: ")
     assert path.read_bytes() == before

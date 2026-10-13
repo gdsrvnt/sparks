@@ -77,7 +77,7 @@ It depends on the persona (see the Push column). Pushing is good. On a vague ans
 
 ## Entry types
 
-After the first turn, pursue adaptively. Drill the types the conversation shows matter. Drop the rest. Don't require all five. Tag each question with its type (`[S]`, `[P]`, …). The tag becomes the record's `type`.
+After the first turn, pursue adaptively. Drill the types the conversation shows matter. Drop the rest. Don't require all five. Tag each question with its type (`[S]`, `[P]`, …). The tag, lowercased, becomes the record's `type`.
 
 - **S** — > Spark entries of type S address the actual stack constituents, the tooling, the dependencies, the build pipelines, the production infrastructure, and other things pertaining to the plumbing and the nuts and bolts of the project itself; they answer architecture questions too.
 - **P** — > How is this packaged, branded, presented and shipped? Why, when, who, where <all of those things>?
@@ -121,7 +121,7 @@ The record you pass to `sparks entry add` has exactly three keys. The file's for
 
 | Key | Rule |
 | --- | --- |
-| `type` | `S`, `P`, `A`, `R`, or `K`: the question's tag |
+| `type` | `s`, `p`, `a`, `r`, or `k`: the question's tag, lowercase |
 | `question` | the question line the user accepted |
 | `answer` | the user's words, verbatim |
 
@@ -135,7 +135,7 @@ Per settled question:
 
    ```sh
    <plugin root>/bin/sparks entry add --path <path> --json "$(cat <<'EOF'
-   {"type": "R", "question": "<question>", "answer": "<answer>"}
+   {"type": "r", "question": "<question>", "answer": "<answer>"}
    EOF
    )"
    ```

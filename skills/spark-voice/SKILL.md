@@ -141,7 +141,7 @@ For each answer, one at a time:
 5. Record it with one call. The quoted heredoc keeps the shell away from the text. Inside it, the record is JSON, so escape `"`, `\`, and line breaks so the strings decode to the exact words:
    ```sh
    <plugin root>/bin/sparks entry add --path <file> --json "$(cat <<'EOF'
-   {"type":"<T>","question":"<confirmed question>","answer":"<verbatim answer>"}
+   {"type":"<t>","question":"<confirmed question>","answer":"<verbatim answer>"}
    EOF
    )"
    ```

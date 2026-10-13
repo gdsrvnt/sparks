@@ -51,12 +51,12 @@ In a given directory, the sparks.json holds question answer pairs that pertain t
 
 ```sh
 cd path/to/project
-path/to/sparks/bin/sparks entry add --json '{"type":"S","question":"What is Spark?","answer":"Spark is a way of gathering, maintaining, and structuring context about a project in Q&A pairs."}'
+path/to/sparks/bin/sparks entry add --json '{"type":"s","question":"What is Spark?","answer":"Spark is a way of gathering, maintaining, and structuring context about a project in Q&A pairs."}'
 # added <id> to sparks.json
 ```
 
 - `--path <path>` names the file. Without it, the command uses `sparks.json` in the current directory. A missing file is created; a missing directory is not.
-- `--json <json>` is one record. It must match `spark.schema.json`: `type` is `S`, `P`, `A`, `R`, or `K`, plus `question` and `answer`. There is no `id` key. The success line prints the id `spark_id.py` derives; that id is not written to the file.
+- `--json <json>` is one record. It must match `spark.schema.json`: `type` is `s`, `p`, `a`, `r`, or `k` (any case is accepted; it is written lowercase), plus `question` and `answer`. There is no `id` key. The success line prints the id `spark_id.py` derives; that id is not written to the file.
 - The command matches `question` exactly within the target file. One match replaces the whole record (including `type` and `answer`) in place; no match appends. Matching compares decoded JSON strings, with no trimming, case folding, punctuation removal, or Unicode normalization. Different JSON escape spellings of the same string match. An identical record succeeds without rewriting; the success line remains `added <id> to <path>` for both adds and replacements. Changing the content changes the derived id.
 - Multiple exact-question matches are ambiguous: the command refuses without writing, even if one record is identical to the incoming record. Resolve them manually first; the CLI never chooses the first match or silently deletes duplicates.
 - The command refuses invalid JSON, a schema failure, and an existing file that is not valid. It also refuses duplicate keys in a JSON object, which `spark_id.py` lets through, because rewriting the file would keep only one of them. A refusal exits 1 with one line on stderr and leaves the file alone.
@@ -146,22 +146,22 @@ I believe that intent can be encoded more strongly in prose that takes it as ass
 
 sparks.json files in any directory apply globally to a project by default. The user decides if and how to scope them for certain tasks.
 
-A sparks.json includes any number of entries, json objects with a type of "s", "p", "a", "r", or "k".
+A sparks.json includes any number of entries, json objects with a type of "s", "p", "a", "r", or "k". The CLI accepts any case and writes lowercase.
 
-### entry types
+### Entry Types
 
-#### S: Stack and implementation
+#### S: Stack and Implementation
 
-The S stands for stack and implementation, and Spark entries of type S address the actual stack constituents, the tooling, the dependencies, the build pipelines, the production infrastructure, and other things pertaining to the plumbing and the nuts and bolts of the project itself; they answer architecture questions too. They're question answer pairs relating to the stack of the project. Again, optional.
+The S stands for Stack and Implementation, and Spark entries of type S address the actual stack constituents, the tooling, the dependencies, the build pipelines, the production infrastructure, and other things pertaining to the plumbing and the nuts and bolts of the project itself; they answer architecture questions too. They're question answer pairs relating to the stack of the project. Again, optional.
 
 
-#### P: Processes and execution
+#### P: Processes and Execution
 
-Everything that is created is created for a purpose and is intended to have an effect on those who interact with it. The P, which stands for processes and execution, is the subset of spark entries that answer questions about the shape the project has and the physical space it takes up in the world. The shape that it expresses to the world and or the effect and appearance that it should have on the public and those who see it. Like with every other type of spark entity, the question answer pairs need not only pertain to the desired production shape, but also may pertain to what should not be the shape and what sentiments and impressions should the product or project not leave on those who observe it.
+Everything that is created is created for a purpose and is intended to have an effect on those who interact with it. The P, which stands for Processes and Execution, is the subset of spark entries that answer questions about the shape the project has and the physical space it takes up in the world. The shape that it expresses to the world and or the effect and appearance that it should have on the public and those who see it. Like with every other type of spark entity, the question answer pairs need not only pertain to the desired production shape, but also may pertain to what should not be the shape and what sentiments and impressions should the product or project not leave on those who observe it.
 
 How is this packaged, branded, presented and shipped? Why, when, who, where <all of those things>?
 
-#### A: Audience and visuals
+#### A: Audience and Visuals
 
 This section, or rather, this type of entry is of course closely related to type P. Indeed, type A is the means by which the type P entries are achieved, and thus P informs A, and A necessarily has consequences for P. Because this is the type of entry most heavily influenced by taste of the team and nature of the project, it is also the one whose conventions are least strict, if it can be said that any of the entry types have conventions at all.
 
@@ -173,15 +173,15 @@ What exactly to include in A is not advised upon herein at all.
 
 Facts about the sensory footprint of the project.
 
-#### R: Reconnaissance and restrictions
+#### R: Reconnaissance and Restrictions
 
 This type of entry addresses the hard do not dos of a project, and in addition, it includes admonitions about what to be weary of of the project. What to be weary of when working on the project that cannot be documented as a hard rule as such because there is no substrate for it to prohibit, but rather just things that should be avoided or certain patterns that are not desirable, or clear question answers about what is not or what things are not or what should not come to be.
 
 Reconnaissance is an ever-evolving subset of entities that tracks the changing topology of the niche or domain or science of the project, and stores bits of context that are both important and liable to change quickly, whether to the advantage of the project or to its detriment.
 
-#### K: Knowledge sources
+#### K: Knowledge Sources
 
-K is the last one. And K is one of the most powerful types of SPARK entry. K is knowledge sources. It doesn't just enumerate knowledge sources and leave the agent to do with them what it will. No. K is very useful because it allows a knowledge source to be assigned more than one job, but for that to be done very gracefully and depending on the question and the QA pair that holds a knowledge source. The agent knows how to query a particular knowledge source for a particular task at that particular moment in time. It increases the accuracy of when agents pull context from non-SPARK sources, and it also improves how agents query those sources once they get to them, which is way better than using index files, which most context management systems rely on right now.
+K is the last one. And K is one of the most powerful types of SPARK entry. K is Knowledge Sources. It doesn't just enumerate knowledge sources and leave the agent to do with them what it will. No. K is very useful because it allows a knowledge source to be assigned more than one job, but for that to be done very gracefully and depending on the question and the QA pair that holds a knowledge source. The agent knows how to query a particular knowledge source for a particular task at that particular moment in time. It increases the accuracy of when agents pull context from non-SPARK sources, and it also improves how agents query those sources once they get to them, which is way better than using index files, which most context management systems rely on right now.
 
 ### Five types of data
 
