@@ -4,5 +4,11 @@
     "question": "What is spark?",
     "answer": "spark is a way of gathering, maintaining, and structuring context about a project in Q&A pairs.",
     "id": "e8239a3a4b98cb13"
+  },
+  {
+    "type": "k",
+    "question": "What is the best place to find pi documentation when wokring on sparks functoinality that interfaces with it through herdr?",
+    "answer": "docs/house/pi",
+    "id": "92f8f0889367d30f"
   }
 ]

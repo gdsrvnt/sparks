@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Root `sparks.json` is tracked (other `sparks.json` files stay ignored). Its first record is type `k`, and its answer is `docs/house/pi`.
 - `bin/sparks herdr snapshot [--db <path>]` calls `herdr workspace list`, `herdr tab list`, `herdr pane list`, and `herdr agent list` non-interactively and upserts a shared local SQLite database of workspaces, tabs, panes, agents, and agent statuses, and records the snapshot time. The path is `--db`, else `SPARKS_HERDR_DB`, else `$XDG_DATA_HOME/sparks/herdr-state.sqlite` or `~/.local/share/sparks/herdr-state.sqlite`. It exits nonzero with one message if herdr is missing or not running, and it never runs bare `herdr`.
 - `skills/herdr-operations/`: agents refresh that database before and after herdr changes, and again around a herdr heartbeat.
 - `rules/post-call-self-healing.mdc`, an always-on rule: after every voice call ends (`spark-voice` hang-up), run the `sparks-postcall` self-healing procedure in full. Because `sparks-postcall` sets `disable-model-invocation`, the rule says to open `skills/sparks-postcall/SKILL.md` and follow it, or ask the user to run `/sparks-postcall`. The post-call protocol lives only in `sparks-postcall`, not in `spark-voice`.

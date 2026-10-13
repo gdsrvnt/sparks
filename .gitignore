@@ -3,4 +3,5 @@ __pycache__/
 
 # local lists of sparks; the root example is tracked
 sparks.json
+# the root file is the shared index
 !/sparks.json
