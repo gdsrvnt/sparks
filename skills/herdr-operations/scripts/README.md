@@ -4,12 +4,12 @@ Run this command in the background from the orchestrating agent after starting
 agents. Its exit wakes the orchestrating agent. Keep stdout attached, inspect the report, and
 relaunch after handling the agents.
 
-The script path is relative to the `use-herdr` skill
+The script path is relative to the `herdr-operations` skill
 folder. Launch from the repository you are watching so `--expect` paths resolve
 there.
 
 ```bash
-<use-herdr folder>/scripts/herdr-heartbeat.sh --cap-minutes 20 --stall-minutes 5 --poll-seconds 15
+<herdr-operations folder>/scripts/herdr-heartbeat.sh --cap-minutes 20 --stall-minutes 5 --poll-seconds 15
 ```
 
 The default watches every agent currently reported as working. `--workspace wN`

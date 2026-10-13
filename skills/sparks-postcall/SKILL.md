@@ -10,7 +10,7 @@ This skill turns a finished call into a spec, then audits and completes the work
 
 It is a self-healing loop. The call already said what the user wanted. Whatever was missed during the call gets fixed now, through reversible PRs, without another round of questions, unless something truly needs the user.
 
-Agent work runs through [`use-herdr`](../use-herdr/SKILL.md). Open it now and follow it for every agent you launch.
+Agent work runs through [`herdr-operations`](../herdr-operations/SKILL.md). Open it now and follow it for every agent you launch.
 
 ## Non-negotiables
 
@@ -92,13 +92,13 @@ For every requirement, mark it `met`, `partial`, or `missing`, with evidence: a 
 
 Then check the work against the spec in the other direction. Only work done for this call counts: work that you or the agents you launched for the call produced, and commits, PRs, or issues linked from the call's relays or replies. Work by anyone else, including other jobs under the bot identity, is context only unless it is linked to the call, and any conflict with it becomes an open question. For every item of the call's work, mark it `diverges` if it contradicts a requirement, follows a relay divergence whose meaning changed instead of the user's words, or does something the user put out of scope. A divergence with an obvious correction goes to step 6. Otherwise it becomes an open question.
 
-This is a review step. Run it through `use-herdr` with a strong model at high effort (see step 8), and check its evidence yourself before you accept it.
+This is a review step. Run it through `herdr-operations` with a strong model at high effort (see step 8), and check its evidence yourself before you accept it.
 
 Present the requirement table and the `diverges` list to the user along with the relay divergences and open questions.
 
 ### 6. Implement the gaps
 
-For each `partial`, `missing`, or `diverges` item that has no open question blocking it, launch an agent through `use-herdr`, one agent per tab. If the work already sits on an open PR from the call, extend that PR's branch. Otherwise use a fresh worktree off the default branch tip. Give the agent the requirement, its quotes, its acceptance criteria, the spec's testing decisions, and the project's identity and public-text rules. Where a test seam exists, the PR adds a test at it. Group related gaps into one PR. Keep unrelated gaps in separate PRs.
+For each `partial`, `missing`, or `diverges` item that has no open question blocking it, launch an agent through `herdr-operations`, one agent per tab. If the work already sits on an open PR from the call, extend that PR's branch. Otherwise use a fresh worktree off the default branch tip. Give the agent the requirement, its quotes, its acceptance criteria, the spec's testing decisions, and the project's identity and public-text rules. Where a test seam exists, the PR adds a test at it. Group related gaps into one PR. Keep unrelated gaps in separate PRs.
 
 ### 7. Open the pull requests
 
@@ -106,7 +106,7 @@ Open one PR per coherent change. Each PR body lists the requirements it closes o
 
 ### 8. Review with strong models
 
-Before merging, have each PR reviewed through `use-herdr` by a strong model at high effort. Use Claude Code with Opus at high or xhigh (`claude --model opus --effort xhigh`), or pi with a frontier xAI Grok or OpenAI model at high or xhigh. Use a different model from the one that wrote the change where you can. The reviewer checks the diff against the spec's requirements and acceptance criteria and reports findings by severity. Fix real findings and review again. Record a review that comes back clean.
+Before merging, have each PR reviewed through `herdr-operations` by a strong model at high effort. Use Claude Code with Opus at high or xhigh (`claude --model opus --effort xhigh`), or pi with a frontier xAI Grok or OpenAI model at high or xhigh. Use a different model from the one that wrote the change where you can. The reviewer checks the diff against the spec's requirements and acceptance criteria and reports findings by severity. Fix real findings and review again. Record a review that comes back clean.
 
 ### 9. Push to merge
 
