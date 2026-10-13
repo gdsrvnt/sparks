@@ -1,0 +1,29 @@
+[
+  {
+    "upstream": "pstack",
+    "repo": "cursor/plugins",
+    "kind": "version-bump",
+    "path": "pstack/.cursor-plugin/plugin.json",
+    "pinned_ref": "118e73b0e196e4d49d5aade7ce6dd8985a621f68",
+    "pinned_version": "0.15.21",
+    "sparks_skills": ["ketchup", "how", "why", "teach", "bro"]
+  },
+  {
+    "upstream": "show-me",
+    "repo": "humanlayer/skills",
+    "kind": "version-bump",
+    "path": "plugins/show-me/.claude-plugin/plugin.json",
+    "pinned_ref": "bba9d13ab34f0a87f1cc33df4dd196372393ddfc",
+    "pinned_version": "1.0.1",
+    "sparks_skills": ["show-me"]
+  },
+  {
+    "upstream": "grill-me",
+    "repo": "mattpocock/skills",
+    "kind": "release",
+    "path": "skills/productivity/grilling/SKILL.md",
+    "pinned_ref": "v1.3.1",
+    "pinned_version": "v1.3.1",
+    "sparks_skills": ["grill-me"]
+  }
+]
