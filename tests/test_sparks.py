@@ -23,7 +23,6 @@ from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "bin" / "sparks"
-ISSUE_21 = "https://github.com/gdsrvnt/sparks/issues/21"
 sys.path.insert(0, str(ROOT))
 
 import spark_id  # noqa: E402
@@ -191,12 +190,79 @@ def test_non_ascii_is_kept_verbatim_and_hashed_by_the_spec_rule(tmp_path):
     assert json.loads(text) == [record]
 
 
-def test_same_question_with_a_new_answer_is_appended_until_replace_exists(tmp_path):
+@pytest.mark.parametrize("spark_type", ["S", "R"])
+def test_exact_question_replaces_whole_record_in_place(tmp_path, spark_type):
     path = tmp_path / "sparks.json"
-    revised = spark(FIRST["question"], "Every merge must pass CI and one review.")
-    assert add(path, FIRST).returncode == 0
-    assert add(path, revised).returncode == 0
-    assert json.loads(path.read_bytes()) == [FIRST, revised]
+    third = spark("Another question?", "Another answer.")
+    seed(path, [SECOND, FIRST, third])
+    revised = spark(FIRST["question"], "Every merge must pass CI and one review.", spark_type)
+    result = add(path, revised)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == f"added {record_id(revised)} to {path}\n"
+    assert json.loads(path.read_bytes()) == [SECOND, revised, third]
+    assert record_id(revised) != record_id(FIRST)
+    assert others(tmp_path) == []
+
+
+@pytest.mark.parametrize("question", [
+    FIRST["question"].lower(), " " + FIRST["question"], FIRST["question"] + " ",
+    FIRST["question"][:-1], "Why is main\nprotected?", "", "Café?", "Cafe\u0301?",
+])
+def test_non_exact_questions_append_without_normalization(tmp_path, question):
+    path = tmp_path / "sparks.json"
+    original = spark("Café?") if question == "Cafe\u0301?" else FIRST
+    seed(path, [original])
+    incoming = spark(question)
+    assert add(path, incoming).returncode == 0
+    assert json.loads(path.read_bytes()) == [original, incoming]
+
+
+def test_json_escape_spelling_does_not_change_question_identity(tmp_path):
+    path = tmp_path / "sparks.json"
+    original = spark("Café?")
+    seed(path, [original])
+    revised = spark(original["question"], "Updated.")
+    assert add(path, json.dumps(revised, ensure_ascii=True)).returncode == 0
+    assert json.loads(path.read_bytes()) == [revised]
+
+
+@pytest.mark.parametrize("incoming", [FIRST, spark(FIRST["question"], "Updated.")])
+def test_multiple_exact_matches_are_refused_without_writing(tmp_path, incoming):
+    path = tmp_path / "sparks.json"
+    before = seed(path, [FIRST, SECOND, spark(FIRST["question"], "Old answer.", "R")])
+    assert_rejected(add(path, incoming), "2 records have the exact question")
+    assert path.read_bytes() == before
+    assert others(tmp_path) == []
+
+
+def test_failed_replacement_keeps_old_record(tmp_path, monkeypatch, capsys):
+    path = tmp_path / "sparks.json"
+    before = seed(path, [FIRST, SECOND])
+
+    def fail(src, dst):
+        raise OSError(errno.EIO, "simulated replacement failure")
+
+    monkeypatch.setattr(os, "replace", fail)
+    assert run_main(path, spark(FIRST["question"], "Updated.")) == 1
+    assert "cannot write" in capsys.readouterr().err
+    assert path.read_bytes() == before
+    assert others(tmp_path) == []
+
+
+@posix
+def test_concurrent_adds_of_same_question_leave_one_record(tmp_path):
+    path = tmp_path / "sparks.json"
+    records = [spark(FIRST["question"], f"Revision {i}") for i in range(10)]
+    processes = [subprocess.Popen(command(path, record), stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE) for record in records]
+    for process in processes:
+        stdout, stderr = process.communicate(timeout=30)
+        assert process.returncode == 0, stderr
+        assert stdout.startswith(b"added ")
+    written = json.loads(path.read_bytes())
+    assert len(written) == 1
+    assert written[0] in records
+    assert others(tmp_path) == []
 
 
 def test_written_file_passes_spark_id_and_the_schema(tmp_path):
@@ -368,10 +434,15 @@ def test_schema_problems_are_capped_and_clipped(tmp_path):
     assert len(result.stderr) < len(str(huge)) + 300
 
 
-def test_rejects_an_id_already_in_the_file(tmp_path):
+def test_identical_add_succeeds_without_rewriting(tmp_path):
     path = tmp_path / "sparks.json"
-    before = seed(path, [FIRST, SECOND])
-    assert_rejected(add(path, FIRST), f"sparks: {path}: id {record_id(FIRST)} is already in the file")
+    path.write_text(json.dumps([FIRST, SECOND]), encoding="utf-8")
+    before = path.read_bytes()
+    inode = path.stat().st_ino
+    result = add(path, FIRST)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == f"added {record_id(FIRST)} to {path}\n"
+    assert path.stat().st_ino == inode
     assert path.read_bytes() == before
     assert others(tmp_path) == []
 
@@ -682,23 +753,19 @@ def test_a_path_stdout_cannot_encode_is_escaped(tmp_path):
     assert json.loads(path.read_bytes()) == [FIRST]
 
 
-# help, TODO, and the uv entry point
+# help and the uv entry point
 
 
-def test_help_shows_the_usage_exit_codes_and_the_replace_todo(tmp_path):
+def test_help_shows_the_usage_exit_codes_and_exact_replace_semantics(tmp_path):
     result = sparks("entry", "add", "--help", cwd=tmp_path)
     assert result.returncode == 0
     assert result.stdout.startswith("usage: sparks entry add [-h] [--path <path>] --json <json>\n")
-    assert "exit status: 0 added; 1 refused, nothing written; 2 usage error; 3 written" in (
+    assert "exit status: 0 added or replaced; 1 refused, nothing written; 2 usage error; 3 written" in (
         result.stdout
     )
-    assert "TODO: replace is not supported yet" in result.stdout
-    assert ISSUE_21 in result.stdout
-
-
-def test_code_marks_replace_as_a_todo_for_issue_21():
-    source = BIN.read_text(encoding="utf-8")
-    assert "TODO(#21)" in source and ISSUE_21 in source
+    assert "An exact question match replaces the entire record" in result.stdout
+    assert "Multiple exact matches are" in result.stdout
+    assert "An identical record succeeds without rewriting." in result.stdout
 
 
 @posix
