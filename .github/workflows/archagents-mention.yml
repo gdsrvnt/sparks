@@ -39,9 +39,9 @@ jobs:
       - name: Forward event to webhook
         env:
           EVENT_NAME: ${{ github.event_name }}
-          WEBHOOK_URL: ${{ secrets.MENTION_WEBHOOK_URL }}
-          WEBHOOK_KEY: ${{ secrets.MENTION_WEBHOOK_KEY }}
-          WEBHOOK_HEADER: ${{ secrets.MENTION_WEBHOOK_HEADER }}
+          WEBHOOK_URL: ${{ secrets.UPSTREAM_WEBHOOK_URL }}
+          WEBHOOK_KEY: ${{ secrets.UPSTREAM_WEBHOOK_KEY }}
+          WEBHOOK_HEADER: ${{ secrets.UPSTREAM_WEBHOOK_HEADER }}
         run: |
           set -euo pipefail
           if [ -z "${WEBHOOK_URL:-}" ] || [ -z "${WEBHOOK_HEADER:-}" ]; then
