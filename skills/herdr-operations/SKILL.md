@@ -13,7 +13,7 @@ herdr is a terminal multiplexer for coding agents. It organizes **workspaces** (
 - Choose the harness from the model's maker:
   - Anthropic models run in **Claude Code** (`--kind claude`): `claude --model <model>`, with `--effort <level>` for effort.
   - xAI (Grok) and OpenAI models run in **pi** (`--kind pi`): `--provider xai --model <grok-model>` or `--provider openai-codex --model <openai-model>`. Pass them after `--`, e.g. `herdr agent start <name> --kind pi --pane <id> -- --provider xai --model <grok-model>`. Append `:<thinking>` to the model for effort (e.g. `<model>:high`). List models with `pi --list-models`.
-  - Use only the harnesses the user has approved. Don't install others.
+  - **Only pi and the Claude Code CLI are ever used in herdr; never any other harness.** xAI and OpenAI models always run in pi. Don't install others.
   - Check that each harness is logged in before launching: `claude auth status` for Claude Code; pi's provider logins for pi. Install herdr's pi integration so herdr reports pi's state.
   - pi loads skills from its user skills folder and from the repo's `.agents/skills`. Add a symlink there when you add a shared skill. Skills marked `disable-model-invocation` are only run by name: `/skill:<name>`.
 - Within one process, each step can use a different harness. Run each step in the harness that matches its model.
