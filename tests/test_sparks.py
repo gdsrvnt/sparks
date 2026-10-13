@@ -1081,6 +1081,58 @@ def saved_snapshot(fake_herdr):
     return fake_herdr, before
 
 
+@pytest.fixture(params=["version-1", "no-meta"])
+def delete_snapshot(fake_herdr, request):
+    fake = fake_herdr
+    fake.seed()
+    with contextlib.closing(sqlite3.connect(fake.db)) as db:
+        if request.param == "no-meta":
+            db.execute("DROP TABLE meta")
+            db.commit()
+        assert db.execute("PRAGMA journal_mode=DELETE").fetchone()[0] == "delete"
+    before = database_dump(fake.db)
+    fake.respond(changed_herdr_rows(fake.rows))
+    return fake, before
+
+
+@pytest.fixture(params=["absolute", "uri-characters"])
+def unsupported_wal(fake_herdr, request):
+    fake = fake_herdr
+    shown = str(fake.db) if request.param == "absolute" else "./future#?%23.sqlite"
+    target = fake.directory / shown
+    leave_wal = """
+import os
+import sqlite3
+import sys
+
+db = sqlite3.connect(sys.argv[1])
+assert db.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+db.execute("PRAGMA wal_autocheckpoint=0")
+db.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+db.execute("INSERT INTO meta VALUES ('schema_version', '2')")
+db.execute("CREATE TABLE future_inventory (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+db.execute("INSERT INTO future_inventory VALUES ('opaque-id', 'committed future data')")
+db.commit()
+os._exit(0)
+"""
+    child = subprocess.run(
+        [sys.executable, "-c", leave_wal, str(target)], cwd=fake.directory,
+        capture_output=True, encoding="utf-8", timeout=10,
+    )
+    assert (child.returncode, child.stdout, child.stderr) == (0, "", "")
+    files = (target, Path(str(target) + "-wal"), Path(str(target) + "-shm"))
+    assert all(path.is_file() for path in files)
+    assert files[1].stat().st_size > 32
+    # Ignoring WAL exposes the old main file, proving the committed schema
+    # was left uncheckpointed rather than merely leaving empty sidecars.
+    with contextlib.closing(sqlite3.connect(
+        target.absolute().as_uri() + "?mode=ro&immutable=1", uri=True,
+    )) as db:
+        assert db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall() == []
+    before = {path: path.read_bytes() for path in files[:2]}
+    return fake, target, shown, files, before
+
+
 @contextlib.contextmanager
 def snapshot_reader(path):
     # A failed test must not silently create the file it was meant to inspect.
@@ -1593,6 +1645,23 @@ def test_herdr_relative_database_path_output_is_not_resolved(fake_herdr, choice)
     fake_herdr.assert_calls()
 
 
+@pytest.mark.parametrize("name", ["hash#state.sqlite", "query?mode=rw.sqlite", "percent%23state.sqlite"])
+def test_herdr_existing_database_readonly_uri_escapes_reserved_path_characters(fake_herdr, name):
+    fake = fake_herdr
+    shown = f"./data#?%25/{name}"
+    target = fake.directory / shown
+    old_snapshot = assert_snapshot_success(fake, fake.run("--db", shown), db=target, shown_db=shown)
+    fake.assert_calls()
+    fake.clear_calls()
+    fake.respond(changed_herdr_rows(fake.rows))
+    time.sleep(0.01)
+    snapshot = assert_snapshot_success(fake, fake.run("--db", shown), db=target, shown_db=shown)
+    assert snapshot["captured_at"] > old_snapshot["captured_at"]
+    fake.assert_calls()
+    assert not fake.db.exists()
+    assert list(fake.directory.rglob("*.sqlite")) == [target]
+
+
 def test_herdr_creates_parent_directories_and_schema_v1(fake_herdr):
     target = fake_herdr.directory / "new" / "nested" / "state.sqlite"
     result = fake_herdr.run("--db", str(target), umask=0)
@@ -1670,6 +1739,38 @@ def test_herdr_unsupported_schema_version_changes_nothing(fake_herdr, version):
     assert (result.returncode, result.stdout, result.stderr) == (
         1, "", f"sparks: {fake_herdr.db}: unsupported schema_version {version} (expected 1)\n",
     )
+    assert_snapshot_unchanged(fake_herdr, before)
+
+
+def test_herdr_unsupported_wal_preserves_main_wal_and_sidecars(unsupported_wal):
+    fake, target, shown, files, before = unsupported_wal
+    result = fake.run("--db", shown)
+    assert (result.returncode, result.stdout, result.stderr) == (
+        1, "", f"sparks: {shown}: unsupported schema_version 2 (expected 1)\n",
+    )
+    fake.assert_calls()
+    assert all(path.is_file() for path in files)
+    assert {path: path.read_bytes() for path in files[:2]} == before
+    # SHM read/lock state is ephemeral even with a read-only connection;
+    # its existence, not byte equality, is part of this regression.
+    with snapshot_reader(target) as db:
+        assert db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()[0] == "2"
+        assert tuple(db.execute("SELECT * FROM future_inventory").fetchone()) == (
+            "opaque-id", "committed future data",
+        )
+
+
+def test_herdr_meta_without_schema_version_is_rejected_unchanged(fake_herdr):
+    with contextlib.closing(sqlite3.connect(fake_herdr.db)) as db:
+        db.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        db.execute("INSERT INTO meta VALUES ('future-key', 'keep this value')")
+        db.commit()
+    before = fake_herdr.db.read_bytes(), database_dump(fake_herdr.db)
+    result = fake_herdr.run()
+    assert (result.returncode, result.stdout, result.stderr) == (
+        1, "", f"sparks: {fake_herdr.db}: unsupported schema_version None (expected 1)\n",
+    )
+    fake_herdr.assert_calls()
     assert_snapshot_unchanged(fake_herdr, before)
 
 
@@ -1751,6 +1852,8 @@ def test_herdr_sqlite_cleanup_errors_are_mapped_without_a_traceback(
                 raise sqlite3.OperationalError("simulated sqlite close failure")
 
     def fail_cleanup_connect(*args, **kwargs):
+        if kwargs.get("uri") and "mode=ro" in str(args[0]).partition("?")[2].split("&"):
+            return real_connect(*args, **kwargs)
         kwargs["factory"] = CleanupFailureConnection
         db = real_connect(*args, **kwargs)
         # Fail the final snapshot insert, after inventory upserts/deletes but
@@ -1769,6 +1872,91 @@ def test_herdr_sqlite_cleanup_errors_are_mapped_without_a_traceback(
     assert_rejected(result, f"{fake.db}: simulated sqlite {failure} failure")
     fake.assert_calls()
     assert_snapshot_unchanged(fake, before)
+
+
+def test_herdr_close_after_success_keeps_committed_result(saved_snapshot, monkeypatch, capsys):
+    fake, _ = saved_snapshot
+    with snapshot_reader(fake.db) as db:
+        old_time = db.execute("SELECT captured_at FROM snapshot").fetchone()[0]
+    fake.respond(changed_herdr_rows(fake.rows))
+    real_connect = sqlite3.connect
+    close_states = []
+
+    class CloseAfterCommitFailureConnection(sqlite3.Connection):
+        def close(self):
+            close_states.append(self.in_transaction)
+            super().close()
+            raise sqlite3.OperationalError("simulated sqlite close failure after commit")
+
+    def fail_close_connect(*args, **kwargs):
+        if kwargs.get("uri") and "mode=ro" in str(args[0]).partition("?")[2].split("&"):
+            return real_connect(*args, **kwargs)
+        kwargs["factory"] = CloseAfterCommitFailureConnection
+        return real_connect(*args, **kwargs)  # no authorizer: the final insert must commit
+
+    time.sleep(0.01)
+    started = datetime.now(timezone.utc)
+    with monkeypatch.context() as patch:
+        patch.setattr(sqlite3, "connect", fail_close_connect)
+        code = cli.main(["herdr", "snapshot"])
+    finished = datetime.now(timezone.utc)
+    output = capsys.readouterr()
+    result = subprocess.CompletedProcess([], code, output.out, output.err)
+    assert close_states == [False]
+    snapshot = assert_snapshot_success(fake, result)
+    fake.assert_calls()
+    assert snapshot["captured_at"] > old_time
+    captured = datetime.fromisoformat(snapshot["captured_at"])
+    assert started.timestamp() - 0.001 <= captured.timestamp() <= finished.timestamp()
+    assert [snapshot[group + "_count"] for group in HERDR_GROUPS] == [2, 2, 3, 2]
+    with snapshot_reader(fake.db) as db:
+        assert db.execute("SELECT agent_status FROM agents WHERE name='state-review'").fetchone()[0] == "blocked"
+        assert db.execute("SELECT agent_status FROM agents WHERE name='new-agent'").fetchone()[0] == "working"
+        for table in HERDR_TABLES:
+            assert db.execute(f"SELECT COUNT(*) FROM {table} WHERE workspace_id='w1'").fetchone()[0] == 0
+
+
+def test_herdr_delete_database_lock_released_before_deadline_succeeds(delete_snapshot):
+    fake, before = delete_snapshot
+    with contextlib.closing(sqlite3.connect(fake.db)) as lock:
+        lock.execute("BEGIN IMMEDIATE")
+        started = time.monotonic()
+        child = subprocess.Popen(
+            [sys.executable, str(BIN), "herdr", "snapshot"], cwd=fake.directory,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8",
+        )
+        try:
+            with pytest.raises(subprocess.TimeoutExpired):
+                child.wait(timeout=1.25)
+            fake.assert_calls()
+            assert database_dump(fake.db) == before
+            assert 1.0 <= time.monotonic() - started < 4.5
+            lock.rollback()
+            stdout, stderr = child.communicate(timeout=10)
+            result = subprocess.CompletedProcess(child.args, child.returncode, stdout, stderr)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait()
+    assert_snapshot_success(fake, result)
+    fake.assert_calls()
+
+
+def test_herdr_delete_database_held_lock_waits_then_preserves_logical_snapshot(delete_snapshot):
+    fake, before = delete_snapshot
+    with contextlib.closing(sqlite3.connect(fake.db)) as lock:
+        lock.execute("BEGIN IMMEDIATE")
+        started = time.monotonic()
+        result = fake.run(timeout=12)
+        elapsed = time.monotonic() - started
+        assert (result.returncode, result.stdout, result.stderr) == (
+            1, "", f"sparks: {fake.db}: database is locked\n",
+        )
+        assert 4.5 <= elapsed < 8
+        assert database_dump(fake.db) == before
+        lock.rollback()
+    assert database_dump(fake.db) == before
+    fake.assert_calls()
 
 
 def test_herdr_locked_database_waits_then_keeps_previous_snapshot(saved_snapshot):

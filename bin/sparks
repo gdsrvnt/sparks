@@ -24,6 +24,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
@@ -580,8 +581,8 @@ def _snapshot_parents(directory: Path) -> None:
                 raise NotADirectoryError(errno.ENOTDIR, "not a directory", str(directory))
 
 
-def _snapshot_file(target: Path) -> None:
-    """Refuse non-files; exclusively create a missing file so its mode is ours to set."""
+def _snapshot_file(target: Path) -> bool:
+    """Refuse non-files; create a missing file privately. Return whether it existed."""
     try:
         mode = target.stat().st_mode
     except FileNotFoundError:
@@ -591,18 +592,20 @@ def _snapshot_file(target: Path) -> None:
     else:
         if not stat.S_ISREG(mode):
             raise ValueError("not a regular file")
-        return
+        return True
     _snapshot_parents(target.parent)
     try:
         fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     except FileExistsError:
         if not stat.S_ISREG(target.stat().st_mode):
             raise ValueError("not a regular file")
+        return True
     else:
         os.close(fd)
         if os.name == "posix":
             with contextlib.suppress(OSError):
                 os.chmod(target, 0o600)
+    return False
 
 
 def _check_snapshot_version(connection: sqlite3.Connection) -> bool:
@@ -614,6 +617,43 @@ def _check_snapshot_version(connection: sqlite3.Connection) -> bool:
             raise ValueError(f"unsupported schema_version {value} (expected 1)")
         return True
     return False
+
+
+def _activate_snapshot_wal(connection: sqlite3.Connection) -> None:
+    """Retry only journal-mode contention, within one monotonic five-second budget."""
+    deadline = time.monotonic() + 5
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise sqlite3.OperationalError("database is locked")
+            # Some WAL transitions wait through SQLite's busy handler, others
+            # fail immediately. Keep each attempt within the remaining budget.
+            connection.execute(f"PRAGMA busy_timeout={max(1, int(remaining * 1000))}")
+            try:
+                row = connection.execute("PRAGMA journal_mode=WAL").fetchone()
+            except sqlite3.OperationalError as exc:
+                code = getattr(exc, "sqlite_errorcode", None)
+                if code is not None:
+                    locked = (code & 0xff) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+                else:
+                    locked = str(exc).lower().startswith((
+                        "database is locked", "database table is locked",
+                        "database schema is locked", "database is busy",
+                    ))
+                if not locked:
+                    raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise sqlite3.OperationalError("database is locked") from exc
+                time.sleep(min(0.05, remaining))
+            else:
+                if row is None or row[0] != "wal":
+                    raise sqlite3.OperationalError("cannot enable WAL journal mode")
+                return
+    finally:
+        # BEGIN IMMEDIATE and the transaction retain SQLite's full busy timeout.
+        connection.execute("PRAGMA busy_timeout=5000")
 
 
 def _create_snapshot_schema(connection: sqlite3.Connection, has_meta: bool) -> None:
@@ -649,18 +689,25 @@ def _create_snapshot_schema(connection: sqlite3.Connection, has_meta: bool) -> N
 def _write_snapshot(path: str, inventory: dict[str, list[tuple]]) -> str:
     try:
         target = Path(path)
-        _snapshot_file(target)
+        if _snapshot_file(target):
+            # A read/write connection could checkpoint a refused WAL database on
+            # close. Preflight existing targets read-only, with URI path escaping.
+            with contextlib.closing(sqlite3.connect(
+                target.absolute().as_uri() + "?mode=ro", uri=True,
+                timeout=5, isolation_level=None,
+            )) as preflight:
+                _check_snapshot_version(preflight)
         # An absolute filename avoids SQLite's special :memory: and empty-path meanings.
         # It is only used for opening; the user's spelling is retained in output.
-        with contextlib.closing(sqlite3.connect(
-            str(target.absolute()), timeout=5, isolation_level=None,
-        )) as connection:
+        connection = sqlite3.connect(str(target.absolute()), timeout=5, isolation_level=None)
+        committed = False
+        try:
             connection.execute("PRAGMA busy_timeout=5000")
             _check_snapshot_version(connection)
             # SQLite requires journal_mode outside a transaction. All schema/data
-            # changes below are in one explicit transaction. Both context managers
-            # are inside the error boundary, including commit, rollback, and close.
-            connection.execute("PRAGMA journal_mode=WAL")
+            # changes below are in one explicit transaction, including the locked
+            # version recheck. Commit and rollback remain inside the error boundary.
+            _activate_snapshot_wal(connection)
             with connection:
                 connection.execute("BEGIN IMMEDIATE")
                 captured_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
@@ -693,6 +740,15 @@ def _write_snapshot(path: str, inventory: dict[str, list[tuple]]) -> str:
                     "tab_count=excluded.tab_count, pane_count=excluded.pane_count, agent_count=excluded.agent_count",
                     (captured_at, *(len(inventory[group]) for group in HERDR_COLUMNS)),
                 )
+            committed = True
+        finally:
+            try:
+                connection.close()
+            except Exception:
+                # Only cleanup remains after a successful commit; it cannot
+                # turn the committed snapshot into an unsuccessful CLI result.
+                if not committed:
+                    raise
         return captured_at
     except (sqlite3.Error, OSError, ValueError) as exc:
         reason = _why(exc) if isinstance(exc, OSError) else str(exc)
