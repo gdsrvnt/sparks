@@ -209,9 +209,10 @@ Every issue and every open pull request needs exactly one priority label: `low`,
 
 - [Lauren Tan (@poteto)](https://github.com/poteto), who wrote the pstack skills in this plugin: `ketchup`, `how`, `why`, `bro`, `create-verification-skill`, and `maintain-verification-skill`. Those last two are bundled for direct use; `spark-verification` is a separate read-only skill that checks a PR or branch against `sparks.json`.
 - [Matt Pocock (@mattpocock)](https://github.com/mattpocock), whose `grilling` skill is the basis for the grilling core of `sparks-discuss`, whose `domain-modeling` skill is the basis for `sparks-domain`, and whose `to-spec` skill is the basis for `sparks-postcall`.
+- [Yann Collet (@Cyan4973)](https://github.com/Cyan4973), who created [xxHash](https://github.com/Cyan4973/xxHash). `spark_hash.py` is a Python port of its XXH64 algorithm.
 
 ## License
 
 MIT. Copyright (c) 2026 gdsrvnt. See `LICENSE`. That license covers this project's own work.
 
-Third-party skills keep their authors' copyright and MIT licenses. Lauren Tan's skills are MIT, Copyright (c) 2026 Lauren Tan. `create-verification-skill` and `maintain-verification-skill` each carry her license in a `LICENSE` file next to their `SKILL.md`, and her other skills share `skills/LICENSE-poteto`. Matt Pocock's license is in `skills/LICENSE-mattpocock`, and `sparks-domain` and `sparks-postcall` each also carry it in a `LICENSE` file next to their `SKILL.md`. HumanLayer's license is in `skills/LICENSE-humanlayer`. See `THIRD_PARTY_NOTICES.md`.
+Third-party skills keep their authors' copyright and MIT licenses. Lauren Tan's skills are MIT, Copyright (c) 2026 Lauren Tan. `create-verification-skill` and `maintain-verification-skill` each carry her license in a `LICENSE` file next to their `SKILL.md`, and her other skills share `skills/LICENSE-poteto`. Matt Pocock's license is in `skills/LICENSE-mattpocock`, and `sparks-domain` and `sparks-postcall` each also carry it in a `LICENSE` file next to their `SKILL.md`. HumanLayer's license is in `skills/LICENSE-humanlayer`. `spark_hash.py` ports XXH64 from Yann Collet's xxHash, BSD 2-Clause, Copyright (c) 2012-2021 Yann Collet; its license is in `LICENSE-xxhash`. See `THIRD_PARTY_NOTICES.md`.

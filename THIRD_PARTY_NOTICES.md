@@ -35,3 +35,9 @@ It's licensed under the MIT License, Copyright (c) 2026 HumanLayer. The full lic
 `skills/sparks-postcall/` adapts the `to-spec` skill from [mattpocock/skills](https://github.com/mattpocock/skills/tree/49dd158d1076134a641b33efb035946536778336/skills/engineering/to-spec) at commit `49dd158d1076134a641b33efb035946536778336`. It keeps the rule to synthesize instead of interviewing and the core of the spec template: Problem Statement, Solution, User Stories, Implementation Decisions, Testing Decisions, and Out of Scope. It adds Source, Relay divergences, Requirements, and Open Questions, and drops Further Notes, the user-story example, and the prototype-snippet exception. It drops the step that checks test seams with the user and the publish to an issue tracker with the `ready-for-agent` label. It reads a call transcript instead of the live conversation, grounds requirements in verbatim quotes, and adds verification, gap implementation, review, and merge steps. The skill's `agents/` folder is not copied. The folder also holds his `LICENSE` next to its `SKILL.md`.
 
 All three are licensed under the MIT License, Copyright (c) 2026 Matt Pocock. The full license text is in [`skills/LICENSE-mattpocock`](skills/LICENSE-mattpocock).
+
+## XXH64 from xxHash by Yann Collet
+
+`spark_hash.py` is a pure-Python port of the XXH64 algorithm from [xxHash](https://github.com/Cyan4973/xxHash/tree/680bf463fa1ca0461b9a7c2dab7556e1f54cf4cf) (license checked at commit `680bf463fa1ca0461b9a7c2dab7556e1f54cf4cf`). No C code is copied.
+
+The xxHash library is licensed under the BSD 2-Clause License, Copyright (c) 2012-2021 Yann Collet. The full license text is in [`LICENSE-xxhash`](LICENSE-xxhash), next to `spark_hash.py`.
