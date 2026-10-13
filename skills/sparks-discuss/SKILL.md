@@ -4,6 +4,9 @@ description: Discuss the project with the user, one persona at a time, to gather
 disable-model-invocation: true
 ---
 
+> [!IMPORTANT]
+> **Voice mode protocol for Grok Bot**: on a voice call, follow [references/call-start-handshake.md](references/call-start-handshake.md) and [references/dictation-mode.md](references/dictation-mode.md) before anything else.
+
 # Sparks discuss
 
 Interview the user until you share an understanding of the thread. The user is the target: you study their intent, not a domain. Map it as a **design tree**: every decision branches into the decisions that hang off it. Go for **depth, not scope**. Drill whatever thread the conversation opens. Keep asking why and how it came to be until each answer is grounded.
