@@ -4,28 +4,27 @@
 # ///
 
 """``_preimage`` is the normative serializer. The id is the last 16 lowercase
-hex characters of SHA-256 over the UTF-8 of that JSON object. The stored id
-is not an input. Strings are not trimmed and not Unicode-normalized.
+hex characters of SHA-256 over the UTF-8 of that JSON object. Files do not
+store the id. Strings are not trimmed and not Unicode-normalized.
 """
 
 import hashlib
 import json
-import re
 import sys
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-_ID_RE = re.compile(r"^[0-9a-f]{16}$")
+TYPES = ("S", "P", "A", "R", "K")
 
 
 class SparkFileError(Exception):
     """A file or a connect input broke the format or the id rule."""
 
 
-def _preimage(question: str, answer: str) -> bytes:
+def _preimage(question: str, answer: str, spark_type: str) -> bytes:
     return json.dumps(
-        {"answer": answer, "question": question, "type": "SPARK"},
+        {"answer": answer, "question": question, "type": spark_type},
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -38,13 +37,18 @@ class Spark:
 
     question: str
     answer: str
+    type: str = "S"
     id: str = field(init=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.question, str) or not isinstance(self.answer, str):
             raise TypeError("question and answer must be str")
+        if self.type not in TYPES:
+            raise SparkFileError("type must be one of S, P, A, R, K")
         try:
-            digest = hashlib.sha256(_preimage(self.question, self.answer)).hexdigest()
+            digest = hashlib.sha256(
+                _preimage(self.question, self.answer, self.type)
+            ).hexdigest()
         except UnicodeEncodeError as exc:
             raise SparkFileError("preimage is not UTF-8") from exc
         object.__setattr__(self, "id", digest[-16:])
@@ -77,32 +81,22 @@ def load(path: Path) -> tuple[Spark, ...]:
     found: list[Spark] = []
     seen: set[str] = set()
     for item in data:
-        if not isinstance(item, dict) or set(item) != {
-            "type",
-            "question",
-            "answer",
-            "id",
-        }:
+        if not isinstance(item, dict) or set(item) != {"type", "question", "answer"}:
             raise SparkFileError(
-                "each record must be an object with keys type, question, answer, and id"
+                "each record must be an object with keys type, question, and answer"
             )
         wire_type = item["type"]
         question = item["question"]
         answer = item["answer"]
-        stored = item["id"]
         if (
-            wire_type != "SPARK"
+            wire_type not in TYPES
             or not isinstance(question, str)
             or not isinstance(answer, str)
-            or not isinstance(stored, str)
-            or _ID_RE.fullmatch(stored) is None
         ):
             raise SparkFileError(
-                "type must be SPARK, question and answer must be strings, and id must be 16 lowercase hex characters"
+                "type must be one of S, P, A, R, K, and question and answer must be strings"
             )
-        built = Spark(question, answer)
-        if built.id != stored:
-            raise SparkFileError("stored id does not match the record")
+        built = Spark(question, answer, wire_type)
         if built.id in seen:
             raise SparkFileError("duplicate id")
         seen.add(built.id)

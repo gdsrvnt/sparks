@@ -1,0 +1,392 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["jsonschema>=4.18"]
+# ///
+
+"""``sparks entry add`` adds or replaces one SPARK record by exact question.
+
+The record shape comes from ``spark.schema.json``. ``spark_id.py`` derives
+the content id printed after a successful add. Neither id nor extra keys are stored.
+Both modules are read from the repository root, the parent of ``bin/``.
+"""
+
+import argparse
+import contextlib
+import errno
+import json
+import os
+import stat
+import sys
+import tempfile
+from collections.abc import Iterator
+from pathlib import Path
+from typing import TextIO
+
+from jsonschema.validators import validator_for
+
+try:
+    import fcntl
+except ImportError:  # Windows: no lock, see _locked
+    fcntl = None
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.append(str(ROOT))  # last, so a file in the repository root cannot shadow a module
+
+from spark_id import Spark, SparkFileError, load  # noqa: E402
+
+DEFAULT_PATH = Path("sparks.json")
+LOCK_NAME = ".sparks.lock"
+SCHEMA = json.loads((ROOT / "spark.schema.json").read_text(encoding="utf-8"))
+VALIDATOR = validator_for(SCHEMA)(SCHEMA)
+SHOWN_PROBLEMS = 3  # schema problems listed in one message
+PROBLEM_CHARS = 200  # a longer problem is cut in the middle
+UNVERIFIED = 3  # exit status: written, but reading it back did not give what was written
+
+ADD_DESCRIPTION = """\
+Add or replace one SPARK record in a spark file.
+
+The record must match spark.schema.json: type is S, P, A, R, or K, with a
+question and an answer, and no id key. spark_id.py still derives an id, the
+last 16 hex characters of SHA-256 over the compact, key-sorted JSON of answer,
+question, and type. That id is printed, not stored. A missing file is
+created as [] plus the record. An existing file must itself be valid.
+An exact question match replaces the entire record in its current position,
+even if type changes; no match appends. Matching uses decoded strings without
+trimming, case folding, or Unicode normalization. Multiple exact matches are
+refused without writing. An identical record succeeds without rewriting.
+The new file is written to a temp file in the same
+directory, validated, moved into place with os.replace, then re-read and
+validated again."""
+
+ADD_EPILOG = f"""\
+exit status: 0 added or replaced; 1 refused, nothing written; 2 usage error; 3 written, but
+the file read back was not what was written.
+
+On POSIX, adds in one directory take turns by locking a short-lived
+{LOCK_NAME} file there. Windows has no lock: run one add per file at a time."""
+
+
+class Rejected(Exception):
+    """One stderr line, ``<subject>: <problem>``, and the exit status ``code``.
+
+    Code 1 means nothing was written. Code UNVERIFIED means the write happened.
+    """
+
+    def __init__(self, subject: str, problem: str, code: int = 1) -> None:
+        super().__init__(f"{subject}: {problem}")
+        self.problem = problem
+        self.code = code
+
+
+def _show(value: object) -> str:
+    """value as text that stays on one line: its repr if it has control characters."""
+    text = str(value)
+    return text if text.isprintable() else repr(text)
+
+
+def _why(exc: OSError) -> str:
+    return exc.strerror or str(exc)
+
+
+def _say(stream: TextIO | None, text: str) -> None:
+    """Write a line. A closed, narrow, or broken stream must not change the exit status."""
+    if stream is None:  # the process started with this stream closed
+        return
+    try:
+        try:
+            stream.write(text)
+        except UnicodeEncodeError:  # e.g. a cp1252 pipe and a CJK path
+            stream.write(text.encode("ascii", "backslashreplace").decode("ascii"))
+        stream.flush()
+    except OSError:  # e.g. the reader closed the pipe
+        with contextlib.suppress(OSError):  # so the flush at exit cannot fail as well
+            os.dup2(os.open(os.devnull, os.O_WRONLY), stream.fileno())
+
+
+def _object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    found: dict[str, object] = {}
+    for key, value in pairs:
+        if key in found:
+            raise ValueError(f"duplicate key {key!r}")
+        found[key] = value
+    return found
+
+
+def _constant(name: str) -> object:
+    raise ValueError(f"{name} is not valid JSON")
+
+
+def _int(text: str) -> int:
+    try:
+        return int(text)
+    except ValueError:  # over Python's limit on digits
+        raise ValueError("number has too many digits") from None
+
+
+def _parse(text: str, label: str) -> object:
+    """Parse strict JSON. Duplicate keys are refused: a rewrite would keep only one."""
+    try:
+        return json.loads(text, object_pairs_hook=_object, parse_constant=_constant, parse_int=_int)
+    except json.JSONDecodeError as exc:
+        raise Rejected(label, f"invalid JSON: {exc}") from exc
+    except ValueError as exc:
+        raise Rejected(label, str(exc)) from exc
+    except RecursionError as exc:
+        raise Rejected(label, "JSON nested too deeply") from exc
+
+
+def _clip(text: str) -> str:
+    """Cut a long problem in the middle, keeping both ends."""
+    if len(text) <= PROBLEM_CHARS:
+        return text
+    keep = (PROBLEM_CHARS - 5) // 2
+    return f"{text[:keep]} ... {text[-keep:]}"
+
+
+def _schema_problems(instance: object, skip: int = 0) -> str:
+    """spark.schema.json problems as ``where: message; ...``, or "" if there are none.
+
+    skip drops leading path parts, such as the index of a record checked alone.
+    """
+    try:
+        errors = list(VALIDATOR.iter_errors(instance))
+    except RecursionError:
+        return "JSON nested too deeply"
+    shown = []
+    for error in errors[:SHOWN_PROBLEMS]:
+        parts = list(error.absolute_path)[skip:]
+        where = "".join(f"[{p}]" if isinstance(p, int) else f".{p}" for p in parts)
+        shown.append(_clip(f"{where.lstrip('.')}: {error.message}" if where else error.message))
+    if len(errors) > SHOWN_PROBLEMS:
+        shown.append(f"and {len(errors) - SHOWN_PROBLEMS} more")
+    return "; ".join(shown)
+
+
+def parse_record(text: str) -> dict[str, str]:
+    """The --json record, checked, with keys in the order type, question, answer."""
+    record = _parse(text, "--json")
+    if not isinstance(record, dict):
+        raise Rejected("--json", "expected one JSON object, a single SPARK record")
+    # The schema describes the file, so check the record as a one-item file.
+    problems = _schema_problems([record], skip=1)
+    if problems:
+        raise Rejected("--json", problems)
+    try:
+        spark = Spark(record["question"], record["answer"], record["type"])
+    except SparkFileError as exc:  # spark_id cannot hash a lone surrogate, or a bad type
+        raise Rejected("--json", "question and answer must be valid UTF-8 text") from exc
+    return {"type": spark.type, "question": spark.question, "answer": spark.answer}
+
+
+def read_file(path: Path, label: str) -> list[dict[str, str]]:
+    """Records of a valid spark file: spark.schema.json, then spark_id.load."""
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except OSError as exc:
+        raise Rejected(label, f"cannot read: {_why(exc)}") from exc
+    except UnicodeDecodeError as exc:
+        raise Rejected(label, "file is not UTF-8") from exc
+    records = _parse(text, label)
+    problems = _schema_problems(records)
+    if problems:
+        raise Rejected(label, problems)
+    try:
+        load(path)
+    except SparkFileError as exc:
+        raise Rejected(label, str(exc)) from exc
+    return records
+
+
+def render(records: list[dict[str, str]]) -> str:
+    return json.dumps(records, ensure_ascii=False, indent=2) + "\n"
+
+
+def _default_mode() -> int:
+    """The mode open() gives a new file: 0o666 minus the umask."""
+    umask = os.umask(0)
+    os.umask(umask)
+    return 0o666 & ~umask
+
+
+def _discard(path: str | Path) -> None:
+    with contextlib.suppress(OSError):
+        os.unlink(path)
+
+
+def _write_atomic(target: Path, text: str, mode: int, label: str) -> None:
+    """Write a same-directory temp file, fsync and validate it, then os.replace."""
+    try:
+        fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".sparks-", suffix=".tmp")
+    except OSError as exc:
+        where = _show(target.parent)
+        raise Rejected(label, f"cannot create a temp file in {where}: {_why(exc)}") from exc
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        read_file(Path(tmp), f"{label} (new content)")
+        os.chmod(tmp, mode)
+        os.replace(tmp, target)
+    except OSError as exc:
+        _discard(tmp)
+        raise Rejected(label, f"cannot write: {_why(exc)}") from exc
+    except BaseException:
+        _discard(tmp)
+        raise
+    if hasattr(os, "O_DIRECTORY"):  # POSIX: make the rename itself durable
+        with contextlib.suppress(OSError):
+            dir_fd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+
+
+def _acquire(lock: Path) -> int:
+    """flock the lock file, retrying when its holder removed it while we waited."""
+    while True:
+        fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o666)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            if os.path.samestat(os.fstat(fd), os.stat(lock)):
+                return fd
+        except FileNotFoundError:
+            pass
+        except BaseException:
+            os.close(fd)
+            raise
+        os.close(fd)
+
+
+@contextlib.contextmanager
+def _locked(directory: Path, label: str) -> Iterator[None]:
+    """Hold directory/.sparks.lock, so adds in one directory take turns (POSIX).
+
+    The holder removes the lock file before letting go, so none is left behind,
+    and a crash cannot leave a held lock. A waiter that then gets the removed
+    file sees that the path no longer names it, and tries again.
+    """
+    if fcntl is None:
+        yield
+        return
+    lock = directory / LOCK_NAME
+    try:
+        fd = _acquire(lock)
+    except OSError as exc:
+        raise Rejected(label, f"cannot lock {_show(lock)}: {_why(exc)}") from exc
+    try:
+        yield
+    finally:
+        _discard(lock)
+        os.close(fd)
+
+
+def _existing(target: Path, label: str) -> tuple[list[dict[str, str]], int]:
+    """The records in target and its mode, or [] and a new file's mode if it is missing."""
+    if not target.exists():
+        return [], _default_mode()
+    if not target.is_file():
+        raise Rejected(label, "not a regular file")
+    if not os.access(target, os.W_OK):
+        raise Rejected(label, os.strerror(errno.EACCES))
+    return read_file(target, label), stat.S_IMODE(target.stat().st_mode)
+
+
+def add(path: Path, record_json: str) -> str:
+    """Add or replace by exact question in the file at path and return its content id."""
+    record = parse_record(record_json)
+    label = _show(path)
+    try:
+        # Write through symlinks, so a linked file is updated, not replaced by a copy.
+        target = path.resolve()
+    except RuntimeError:  # Python 3.11 and 3.12 raise on a symlink loop
+        raise Rejected(label, "cannot resolve symlink") from None
+    except OSError as exc:
+        raise Rejected(label, f"cannot resolve: {_why(exc)}") from exc
+    if target.is_symlink():  # Python 3.13+ returns a link it cannot resolve as is
+        raise Rejected(label, "cannot resolve symlink")
+    if not target.parent.is_dir():
+        raise Rejected(label, f"directory {_show(target.parent)} does not exist")
+    with _locked(target.parent, label):
+        records, mode = _existing(target, label)
+        incoming = Spark(record["question"], record["answer"], record["type"])
+        matches = [
+            i for i, existing in enumerate(records)
+            if existing["question"] == record["question"]
+        ]
+        if len(matches) > 1:
+            raise Rejected(
+                label,
+                f"{len(matches)} records have the exact question; "
+                "resolve ambiguous matches before adding",
+            )
+        if matches:
+            index = matches[0]
+            if records[index] == record:
+                return incoming.id
+            records[index] = record
+        else:
+            records.append(record)
+        _write_atomic(target, render(records), mode, label)
+        try:
+            written = read_file(target, label)
+        except Rejected as exc:
+            problem = f"written, but invalid when read back: {exc.problem}"
+            raise Rejected(label, problem, UNVERIFIED) from exc
+        if written != records:
+            problem = "written, but another program changed it before it was read back"
+            raise Rejected(label, problem, UNVERIFIED)
+    return incoming.id
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="sparks", description="Keep SPARK records in a spark file (sparks.json)."
+    )
+    commands = parser.add_subparsers(dest="command", required=True, metavar="<command>")
+    entry = commands.add_parser(
+        "entry", help="records in a spark file", description="Records in a spark file."
+    )
+    actions = entry.add_subparsers(dest="action", required=True, metavar="<action>")
+    add_parser = actions.add_parser(
+        "add",
+        help="add or replace one SPARK record by exact question",
+        description=ADD_DESCRIPTION,
+        epilog=ADD_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    add_parser.add_argument(
+        "--path",
+        type=Path,
+        default=DEFAULT_PATH,
+        metavar="<path>",
+        help="spark file to update, created if missing (default: ./sparks.json)",
+    )
+    add_parser.add_argument(
+        "--json",
+        required=True,
+        dest="record",
+        metavar="<json>",
+        help='one record: {"type": "S"|"P"|"A"|"R"|"K", "question": ..., "answer": ...}',
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    try:
+        record_id = add(args.path, args.record)
+    except Rejected as exc:
+        _say(sys.stderr, f"sparks: {exc}\n")
+        return exc.code
+    except OSError as exc:  # not mapped above, e.g. no access while resolving the path
+        _say(sys.stderr, f"sparks: {_show(args.path)}: {_why(exc)}\n")
+        return 1
+    _say(sys.stdout, f"added {record_id} to {_show(args.path)}\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
