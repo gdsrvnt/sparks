@@ -17,7 +17,7 @@ These skills are bundled from the same plugin at the same commit. Every file is 
 - `skills/create-verification-skill/`
 - `skills/maintain-verification-skill/`
 
-They are not listed in `.github/upstreams.json`. To update them, copy them again from pstack and update this notice.
+To update them, copy them again from pstack and update this notice.
 
 `skills/spark-verification/` is an adapter over those two bundled skills. `skills/sparks-discuss/` routes to the copied `why` skill. poteto's material in both is under the same MIT License, Copyright (c) 2026 Lauren Tan.
 
