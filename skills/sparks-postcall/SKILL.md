@@ -17,6 +17,7 @@ Agent work runs through [`use-herdr`](../use-herdr/SKILL.md). Open it now and fo
 - **The user's words are the source of truth.** Every requirement cites at least one verbatim quote from the user. Never invent a requirement, and never upgrade an assistant or relay paraphrase into one.
 - **Relays can garble.** Anything that passed through a relay, a summary, or speech-to-text may differ from what the user said. Use the user's own utterances. List every difference you find.
 - **Do not interview during synthesis.** As in `to-spec`, write the spec from what is already there. Anything the transcript leaves undecided becomes an open question for the user. Do not guess.
+- **Never auto-fix verbatim content.** Where dictated or quoted text in the work differs from the transcript, the transcript may be the garbled one. Report each mismatch as an open question. Never implement or merge a "fix" for it without the user.
 - **Ask before anything irreversible.** Merging reversible work is the point of this skill. Deleting, publishing a release, force-pushing, or sending messages to other people is not. Those need the user's explicit approval.
 
 ## Process
@@ -65,6 +66,10 @@ A long, numbered list of user stories in the form: As an <actor>, I want a <feat
 
 The decisions the user made on the call: modules, interfaces, naming, and constraints. Avoid file paths and code snippets, which go stale.
 
+## Testing Decisions
+
+How each requirement will be checked: the seam to test at (prefer existing seams, and the highest one), and the prior art in the codebase. Fill this only from what the transcript and the code support.
+
 ## Out of Scope
 
 What the user ruled out, with quotes.
@@ -79,17 +84,21 @@ Save the spec where the user keeps work notes. If the user asks for it on the is
 
 ### 4. Gather the work done during the call
 
-Using the call's time span, with a margin for work that was started during the call and finished after it, collect everything produced in that window: commits, branches, pull requests opened and merged, issues, comments, and files changed in the affected repositories. Use `git log --since --until` and the forge's API or CLI. Record each item with its link and time.
+Using the call's time span, with a margin of at least an hour on each side for work started before or finished after the call, collect everything produced in that window: commits, branches, pull requests opened and merged, issues, comments, and files changed in the affected repositories. Use `git log --all` with author dates, since committer dates shift on rebase and squash merge, and the forge's PR and merge timestamps from its API or CLI. Record each item with its link and time.
 
 ### 5. Verify each requirement
 
-For every requirement, mark it `met`, `partial`, or `missing`, with evidence: a commit, a PR, a file and line, or command output. A claim in chat is not evidence, and neither is a PR title. Check the real diff or the real file. Hand the verification to a strong reviewer through `use-herdr` when it is more than a few requirements, and check its evidence yourself before you accept it.
+For every requirement, mark it `met`, `partial`, or `missing`, with evidence: a commit, a PR, a file and line, or command output. A claim in chat is not evidence, and neither is a PR title. Check the real diff or the real file.
+
+Then check the work against the spec in the other direction. For every item from step 4, mark it `diverges` if it contradicts a requirement, follows a relay divergence whose meaning changed instead of the user's words, or does something the user put out of scope. A divergence with an obvious correction goes to step 6. Otherwise it becomes an open question.
+
+This is a review step. Run it through `use-herdr` with a strong model at high effort (see step 8), and check its evidence yourself before you accept it.
 
 Present the table to the user along with the relay divergences and open questions.
 
 ### 6. Implement the gaps
 
-For each `partial` or `missing` requirement that has no open question blocking it, launch an agent through `use-herdr` in a fresh worktree off the default branch tip, one agent per tab. Give it the requirement, its quotes, its acceptance criteria, and the project's identity and public-text rules. Group related gaps into one PR. Keep unrelated gaps in separate PRs.
+For each `partial`, `missing`, or `diverges` item that has no open question blocking it, launch an agent through `use-herdr`, one agent per tab. If the work already sits on an open PR from the call, extend that PR's branch. Otherwise use a fresh worktree off the default branch tip. Give the agent the requirement, its quotes, its acceptance criteria, the spec's testing decisions, and the project's identity and public-text rules. Where a test seam exists, the PR adds a test at it. Group related gaps into one PR. Keep unrelated gaps in separate PRs.
 
 ### 7. Open the pull requests
 
@@ -97,18 +106,25 @@ Open one PR per coherent change. Each PR body lists the requirements it closes, 
 
 ### 8. Review with strong models
 
-Before merging, have each PR reviewed through `use-herdr` by a strong model at high effort. Use Claude Code with Opus at high or xhigh, or pi with a frontier xAI Grok or OpenAI model at high or xhigh. Use a different model from the one that wrote the change where you can. The reviewer checks the diff against the spec's requirements and acceptance criteria and reports findings by severity. Fix real findings and review again. Record a review that comes back clean.
+Before merging, have each PR reviewed through `use-herdr` by a strong model at high effort. Use Claude Code with Opus at high or xhigh (`claude --model opus --effort xhigh`), or pi with a frontier xAI Grok or OpenAI model at high or xhigh. Use a different model from the one that wrote the change where you can. The reviewer checks the diff against the spec's requirements and acceptance criteria and reports findings by severity. Fix real findings and review again. Record a review that comes back clean.
 
 ### 9. Push to merge
 
-Merging is the default outcome, not a favor to ask for. A gap the call left behind is a defect, and a reviewed, reversible fix is the low-risk way to heal it. Merge a PR (squash, as the configured bot identity) when all of these hold:
+Merging is the default outcome, not a favor to ask for. A gap the call left behind is a defect, and a reviewed, reversible fix is the low-risk way to heal it. Merge a PR, as the configured bot identity if there is one, with the repo's allowed merge method (squash where allowed), when all of these hold:
 
 - the strong-model review is clean, or every real finding is fixed and reviewed again
 - tests and checks are green
 - the change is docs-only or otherwise easy to revert, and touches no secrets, releases, or destructive operations
+- the change rewrites no verbatim or dictated content against the transcript
+
+Never bypass branch protection: no `--admin` merges, no skipped required reviews or checks.
 
 If any condition fails, do not merge, and do not quietly let the PR sit either. Send the user one numbered message that names the single blocker for each PR, what you need from them, and the PR's number and link.
 
 ## Done
 
 The skill is done when every requirement is `met` and merged, or is waiting on an open question or blocker the user has in one numbered message. The final report gives the spec location, the requirement table, the relay divergences, every PR's number, link, and merge commit, and the open questions.
+
+## Credit
+
+Adapted from Matt Pocock's [`to-spec`](https://github.com/mattpocock/skills/tree/49dd158d1076134a641b33efb035946536778336/skills/engineering/to-spec) skill, MIT. See [`LICENSE`](LICENSE) in this folder.

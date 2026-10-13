@@ -22,7 +22,7 @@ def positive(value):
     return number
 
 
-parser = argparse.ArgumentParser(prog="herdr-heartbeat.sh", description="Wake the bot when a herdr agent needs attention.")
+parser = argparse.ArgumentParser(prog="herdr-heartbeat.sh", description="Wake the orchestrating agent when a herdr agent needs attention.")
 selection = parser.add_mutually_exclusive_group()
 selection.add_argument("--agents", help="comma-separated agent names or pane IDs")
 selection.add_argument("--workspace", help="workspace ID, for example w7")

@@ -1,11 +1,13 @@
 # Herdr heartbeat
 
-Run this command through the bot's background-shell facility after starting
-agents. Its exit wakes the bot. Keep stdout attached, inspect the report, and
+Run this command in the background from the orchestrating agent after starting
+agents. Its exit wakes the orchestrating agent. Keep stdout attached, inspect the report, and
 relaunch after handling the agents.
 
+Paths are relative to the `use-herdr` skill folder. Launch from the repository you are watching so `--expect` paths resolve there.
+
 ```bash
-skills/use-herdr/scripts/herdr-heartbeat.sh --cap-minutes 20 --stall-minutes 5 --poll-seconds 15
+<use-herdr folder>/scripts/herdr-heartbeat.sh --cap-minutes 20 --stall-minutes 5 --poll-seconds 15
 ```
 
 The default watches every agent currently reported as working. `--workspace wN`
@@ -15,7 +17,7 @@ unknown raw panes. These selectors are mutually exclusive. Replace example IDs
 with IDs returned by herdr. The selected panes stay fixed for each run.
 
 `--expect FILE` is repeatable. Relative paths use the launch directory. Creation,
-replacement, metadata changes, and deletion wake the bot. Existing files get a
+replacement, metadata changes, and deletion wake the orchestrating agent. Existing files get a
 stat baseline and do not wake it immediately. The watcher does not read contents.
 
 Defaults are `--poll-seconds 15 --stall-minutes 5 --cap-minutes 20`. Polling must
