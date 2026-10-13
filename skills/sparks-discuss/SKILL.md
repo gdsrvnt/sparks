@@ -149,7 +149,7 @@ This skill never commits `sparks.json`. Whether and where it is committed is the
 
 ## Done
 
-Only the human ends the session. You never call it done. When the branches you're pursuing look exhausted in depth (each answer grounded, no follow-up left that would add rationale, nothing silently assumed), say so in one line and keep hunting the next gap until the user stops you. Then point at `/spark-verification`. If `/spark-verification` started this session, hand back to it with the entries written, new or replaced.
+Only the human ends the session. You never call it done. When the branches you're pursuing look exhausted in depth (each answer grounded, no follow-up left that would add rationale, nothing silently assumed), say so in one line and keep hunting the next gap until the user stops you. Then point at `/spark-verification` if the user wants the new or replaced sparks checked against a PR or branch.
 
 ## Design answers (verbatim)
 

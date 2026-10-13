@@ -808,6 +808,30 @@ def test_spark_voice_hang_up_hands_off_to_sparks_postcall():
     assert "tell the user to run the post-call skill" not in hang
 
 
+def test_spark_verification_is_read_only_generic_skill():
+    """spark-verification verifies a PR/branch against sparks.json; no create/maintain modes."""
+    skill = ROOT / "skills" / "spark-verification" / "SKILL.md"
+    text = skill.read_text(encoding="utf-8")
+    assert text.startswith("---\n")
+    fm, body = text.split("---", 2)[1], text.split("---", 2)[2]
+    assert "name: spark-verification" in fm
+    assert "description:" in fm
+    assert "disable-model-invocation: true" in fm
+    assert "sparks.json" in body
+    assert "Read-only" in body or "read-only" in body
+    assert "never opens pull requests" in body or "never open" in body.lower()
+    assert "create-verification-skill" not in body.split("## Out of scope", 1)[0]
+    assert "maintain-verification-skill" not in body.split("## Out of scope", 1)[0]
+    assert "Headless" not in body.split("## Out of scope", 1)[0]
+    assert ".cursor/skills" not in body
+    assert "ancestor" in body.lower() or "ancestors" in body.lower()
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "spark-verification` is read-only" in readme or "spark-verification` is a separate read-only" in readme
+    assert "is an adapter over the last two" not in readme
+    discuss = (ROOT / "skills" / "sparks-discuss" / "SKILL.md").read_text(encoding="utf-8")
+    assert "If `/spark-verification` started this session" not in discuss
+
+
 def test_blocker_clearing_rule_is_still_packaged():
     rule = ROOT / "rules" / "blocker-clearing.mdc"
     text = rule.read_text(encoding="utf-8")
