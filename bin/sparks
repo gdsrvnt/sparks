@@ -777,7 +777,8 @@ def snapshot(db: str | None = None) -> str:
 
 QUERY_DESCRIPTION = """\
 Read the shared herdr snapshot and print a short table. Does not call herdr
-and does not write the database.
+and does not write the database or sidecars. Pending journal data or a database
+changed during the read is a read failure; retry after the writer closes.
 
 Path: --db, else SPARKS_HERDR_DB, else
 $XDG_DATA_HOME/sparks/herdr-state.sqlite when XDG_DATA_HOME is non-empty,
@@ -825,14 +826,10 @@ def _query_cell(value: object) -> str:
     return " ".join(str(value).split())
 
 
-def _query_status_label(value: object) -> str:
-    if value is None:
-        return "null"
-    return _query_cell(value) or "empty"
-
-
-def _query_status_field(label: str, count: int) -> str:
-    if label and all(ch.isalnum() or ch in "-_." for ch in label):
+def _query_status_field(label: str | None, count: int) -> str:
+    if label is None:
+        return f"null={count}"
+    if label and label != "null" and all(ch.isalnum() or ch in "-_." for ch in label):
         return f"{label}={count}"
     return f"{json.dumps(label, ensure_ascii=False)}={count}"
 
@@ -861,7 +858,20 @@ def _query_where(columns: dict[str, str], status: str | None, workspace: str | N
     return " WHERE " + " AND ".join(clauses), params
 
 
-def _open_query(path: str) -> sqlite3.Connection:
+def _query_file_state(target: Path) -> tuple[int, ...]:
+    """Immutable reads must not ignore pending WAL or rollback-journal data."""
+    info = target.stat()
+    for suffix in ("-wal", "-journal"):
+        try:
+            size = Path(str(target) + suffix).stat().st_size
+        except FileNotFoundError:
+            continue
+        if size:
+            raise SnapshotError("snapshot has pending journal data; retry after the writer closes")
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _open_query(path: str) -> tuple[sqlite3.Connection, Path, tuple[int, ...]]:
     """Open an existing snapshot read-only. Never creates a file, parent, or sidecar."""
     try:
         target = Path(path)
@@ -871,8 +881,13 @@ def _open_query(path: str) -> sqlite3.Connection:
             raise SnapshotError(f"{_show(path)}: no snapshot")
         if not target.is_file():
             raise SnapshotError(f"{_show(path)}: not a regular file")
+        # mode=ro alone can create or update WAL sidecars. Immutable disables
+        # that, but ignores journals: refuse pending data and check for concurrent
+        # changes after rendering. Resolve symlinks so journal checks match SQLite.
+        target = target.resolve(strict=True)
+        state = _query_file_state(target)
         connection = sqlite3.connect(
-            target.absolute().as_uri() + "?mode=ro", uri=True, timeout=5, isolation_level=None,
+            target.as_uri() + "?mode=ro&immutable=1", uri=True, timeout=5, isolation_level=None,
         )
     except SnapshotError:
         raise
@@ -884,7 +899,7 @@ def _open_query(path: str) -> sqlite3.Connection:
         connection.execute("PRAGMA busy_timeout=5000")
         connection.execute("PRAGMA query_only=ON")
         connection.execute("BEGIN")
-        return connection
+        return connection, target, state
     except (sqlite3.Error, OSError, ValueError) as exc:
         with contextlib.suppress(sqlite3.Error, OSError):
             connection.close()
@@ -964,8 +979,7 @@ def _query_body(connection: sqlite3.Connection, view: str, status: str | None, w
             f"FROM agents{where} ORDER BY {QUERY_AGENT_ORDER}",
             params,
         ).fetchall()
-        filtered = any(value is not None for value in (status, workspace, tab, name))
-        visible = rows if view == "agents" or filtered else [
+        visible = rows if view == "agents" else [
             row for row in rows if row["agent_status"] != "done"
         ]
         table = _query_tsv(QUERY_AGENT_HEADER, [
@@ -974,12 +988,12 @@ def _query_body(connection: sqlite3.Connection, view: str, status: str | None, w
         ])
         if view == "agents":
             return table, len(rows), total
-        counts: dict[str, int] = {}
+        counts: dict[str | None, int] = {}
         for row in rows:
-            label = _query_status_label(row["agent_status"])
+            label = row["agent_status"]
             counts[label] = counts.get(label, 0) + 1
         fields = [_query_status_field(label, counts.pop(label, 0)) for label in QUERY_STATUSES]
-        for label in sorted(counts):
+        for label in sorted(counts, key=lambda value: (value is not None, value or "")):
             fields.append(_query_status_field(label, counts[label]))
         return "agents " + " ".join(fields) + "\n" + table, len(rows), total
 
@@ -1025,7 +1039,7 @@ def query(db: str | None = None, view: str = "summary", status: str | None = Non
     """Read the snapshot and render a short table. Does not call herdr or write."""
     _query_usage(view, status, workspace, tab, name, raw)
     path = _snapshot_path(db)
-    connection = _open_query(path)
+    connection, target, state = _open_query(path)
     try:
         meta = _query_meta(connection, path)
         body, shown, total = _query_body(connection, view, status, workspace, tab, name, raw)
@@ -1033,6 +1047,8 @@ def query(db: str | None = None, view: str = "summary", status: str | None = Non
             meta, path, view, shown, total,
             any(value is not None for value in (status, workspace, tab, name)),
         )
+        if _query_file_state(target) != state:
+            raise SnapshotError(f"{_show(path)}: snapshot changed while reading; retry")
     except SnapshotError:
         raise
     except (sqlite3.Error, OSError, ValueError) as exc:

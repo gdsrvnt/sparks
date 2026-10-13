@@ -84,9 +84,9 @@ The database is current state, not a history log. A failed run leaves the previo
 
 `bin/sparks herdr query [--db <path>] [--status <status>] [--workspace <id>] [--tab <id>] [--name <name>] [--raw] [summary|workspaces|tabs|panes|agents]` reads that database and prints a short tab-separated table. It does not call herdr and does not write the database. The default view is `summary`.
 
-The path uses the same precedence as `sparks herdr snapshot`. A missing database exits 1 with one stderr line and creates nothing.
+The path uses the same precedence as `sparks herdr snapshot`. A missing database exits 1 with one stderr line and creates nothing. Reads use a read-only immutable SQLite URI to avoid creating or updating sidecars. Pending WAL or rollback-journal data, or a database changed during the read, exits 1 rather than returning a stale or torn snapshot; retry after the writer closes.
 
-`summary` prints the snapshot time and stored counts, then agent status counts, then one line for each agent whose status is not `done`. The other views print that table only. Columns are the parsed list fields, not the stored fetch JSON. `--raw` prints each stored fetch object on its own line instead; it does not apply to `summary`.
+`summary` prints the snapshot time and stored counts, then agent status counts, then one line for each agent whose status is not exactly `done`, even with filters. The other views print that table only. Columns are the parsed list fields, not the stored fetch JSON. `--raw` prints each stored fetch object on its own line instead; it does not apply to `summary`.
 
 Filters are exact and combine. A filter that does not apply to the view is a usage error (exit 2). Zero matches still exit 0.
 
