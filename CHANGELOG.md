@@ -13,7 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Removed
 
-- `skills/grill-me/`, with its `THIRD_PARTY_NOTICES.md` entry and its `.github/upstreams.json` tracker entry. `sparks-discuss` and `sparks-domain` still derive from Matt Pocock's work and keep his credit and `skills/LICENSE-mattpocock`.
+- `.github/workflows/upstream-tracker.yml`, `.github/upstreams.json`, and `.github/upstream-check.sh`. We no longer track upstream skill sources daily.
+- `skills/grill-me/`, with its `THIRD_PARTY_NOTICES.md` entry. `sparks-discuss` and `sparks-domain` still derive from Matt Pocock's work and keep his credit and `skills/LICENSE-mattpocock`.
 
 ### Added
 
@@ -22,7 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `tests/test_sparks.py`, run with `uv run tests/test_sparks.py`.
 - `skills/sparks-discuss/`: interviews the user one persona at a time (study's playbooks, refit so the user is the target) and adds or replaces their answers verbatim in `sparks.json` through `bin/sparks entry add`. Adapted from Matt Pocock's `grilling` skill (MIT, `skills/LICENSE-mattpocock`).
 - `skills/spark-verification/`: runs the bundled `create-verification-skill` or `maintain-verification-skill` with the project's sparks as ammunition, in a headless mode (every spark) or an interactive mode (`sparks-discuss` first, then the sparks it wrote).
-- `skills/create-verification-skill/` and `skills/maintain-verification-skill/`, bundled unchanged from poteto's pstack at commit `118e73b`. Each has her MIT `LICENSE` next to its `SKILL.md`. They are not in `.github/upstreams.json`.
+- `skills/create-verification-skill/` and `skills/maintain-verification-skill/`, bundled unchanged from poteto's pstack at commit `118e73b`. Each has her MIT `LICENSE` next to its `SKILL.md`. Update them by copying again from pstack and updating `THIRD_PARTY_NOTICES.md`.
 - `skills/sparks-domain/`: the `sparks-discuss` interview with domain modeling built in. It challenges terms against `sparks.json`, sharpens fuzzy language, stress-tests concepts with scenarios, and checks them against the code. Each settled term or decision goes into `sparks.json` through `bin/sparks entry add`, never into `GLOSSARY.md`, `CONTEXT.md`, or ADR files. Adapted from Matt Pocock's `domain-modeling` skill at `v1.3.1` (MIT, `LICENSE` next to its `SKILL.md`).
 - `skills/sparks-postcall/`: after a call ends, extracts a spec from the transcript grounded in the user's numbered verbatim utterances, with a relay-divergence list, requirements tied to quotes, user stories with acceptance criteria, and open questions. It then gathers the work done during the call, marks each requirement met, partial, or missing with evidence, flags the call's own work that diverges from the spec, never auto-fixes verbatim or dictated content, implements gaps through `use-herdr` agents, opens PRs, has strong models review them, and merges reviewed, green, reversible changes, or names the single blocker in one numbered message. Adapted from Matt Pocock's `to-spec` skill at commit `49dd158` (MIT, `LICENSE` next to its `SKILL.md`).
 - `skills/use-herdr/`: how to run coding-agent work in herdr, with Claude Code for Anthropic models and pi for xAI and OpenAI models, one agent per tab, and proactive check-ins. Includes `scripts/herdr-heartbeat.sh`, a watcher that exits when an agent finishes, blocks, stalls, or hits its time cap.
