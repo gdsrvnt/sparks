@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- `.github/workflows/priority-label.yml` and `CONTRIBUTING.md`: every issue and every open (non-draft) PR must carry exactly one priority label (`low`, `medium`, `high`, `urgent`). The `priority-label` check fails otherwise, and on issues comments once asking for one. Drafts are exempt.
 - `rules/blocker-clearing.mdc`, an always-on rule: when work is blocked on the user, ask one multiple-choice question with clearing options, a free-text field, and a stop-and-deliberate option that runs `sparks-discuss` and records the outcome as a spark.
 - `bin/sparks entry add [--path <path>] --json <json>`, a uv script that adds or replaces one SPARK record in `./sparks.json` or `--path`. It checks the record against `spark.schema.json` and `spark_id.py`, replaces by exact decoded question regardless of type (keeping array position), appends if absent, and refuses ambiguous exact matches or an invalid existing file. Identical adds succeed without rewriting. It writes atomically, and on POSIX locks the directory so concurrent adds take turns ([#21](https://github.com/gdsrvnt/sparks/issues/21)).
 - `tests/test_sparks.py`, run with `uv run tests/test_sparks.py`.

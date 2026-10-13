@@ -1,0 +1,59 @@
+name: priority-label
+
+# Every issue and every open (non-draft) PR must carry exactly one priority
+# label: low, medium, high, or urgent. GitHub cannot block creation, so this
+# check fails (and, for issues, comments once) until one is applied.
+# pull_request_target is used so it also works on fork PRs; no code is checked out.
+
+on:
+  issues:
+    types: [opened, labeled, unlabeled, reopened]
+  pull_request_target:
+    types: [opened, labeled, unlabeled, ready_for_review, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  priority-label:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Check priority label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_LABELS: ${{ toJSON(github.event.issue.labels.*.name) }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "pull_request_target" ]; then
+            if [ "$PR_DRAFT" = "true" ]; then
+              echo "Draft PR: priority label optional."; exit 0
+            fi
+            labels="$PR_LABELS"
+          else
+            labels="$ISSUE_LABELS"
+          fi
+          count=$(jq '[.[] | select(. == "low" or . == "medium" or . == "high" or . == "urgent")] | length' <<<"$labels")
+          if [ "$count" -eq 1 ]; then
+            echo "OK: exactly one priority label."; exit 0
+          fi
+          msg="Needs exactly one priority label (low, medium, high, or urgent); found $count."
+          echo "::error::$msg"
+          if [ "$EVENT" = "issues" ]; then
+            marker='<!-- priority-label-check -->'
+            existing=$(gh api "repos/$REPO/issues/$ISSUE_NUMBER/comments" --paginate \
+              --jq "[.[] | select(.body | contains(\"$marker\"))] | length" | paste -sd+ | bc)
+            if [ "${existing:-0}" -eq 0 ]; then
+              gh issue comment "$ISSUE_NUMBER" -R "$REPO" \
+                --body "$marker
+          $msg Please add one. See CONTRIBUTING.md."
+            fi
+          fi
+          exit 1
