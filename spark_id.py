@@ -1,20 +1,24 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["xxhash>=3.4"]
 # ///
 
-"""``_preimage`` is the normative serializer. The id is the last 16 lowercase
-hex characters of SHA-256 over the UTF-8 of that JSON object. Files do not
-store the id. Strings are not trimmed and not Unicode-normalized.
+"""``_preimage`` is the normative serializer. The id is the 16 lowercase hex
+characters of XXH3-64 (seed 0) over the UTF-8 of that JSON object. Files store
+the id; the stored id is not an input. Strings are not trimmed and not
+Unicode-normalized. The hash is not cryptographic and does not need to be.
 """
 
-import hashlib
 import json
+import re
 import sys
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import xxhash
+
+_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 TYPES = ("S", "P", "A", "R", "K")
 
 
@@ -46,20 +50,21 @@ class Spark:
         if self.type not in TYPES:
             raise SparkFileError("type must be one of S, P, A, R, K")
         try:
-            digest = hashlib.sha256(
+            digest = xxhash.xxh3_64_hexdigest(
                 _preimage(self.question, self.answer, self.type)
-            ).hexdigest()
+            )
         except UnicodeEncodeError as exc:
             raise SparkFileError("preimage is not UTF-8") from exc
-        object.__setattr__(self, "id", digest[-16:])
+        object.__setattr__(self, "id", digest)
 
 
 def load(path: Path) -> tuple[Spark, ...]:
     """Read one spark.json file into Sparks, in array order.
 
     Does not search parent or child directories and does not write.
-    An empty array returns (). JSON errors, OS errors, shape errors,
-    and SparkFileError from Spark construction raise SparkFileError.
+    An empty array returns (). JSON errors, OS errors, shape errors, a
+    stored id that does not match its record, and SparkFileError from
+    Spark construction raise SparkFileError.
     Does not return a partial tuple.
     """
     if not isinstance(path, Path):
@@ -81,22 +86,28 @@ def load(path: Path) -> tuple[Spark, ...]:
     found: list[Spark] = []
     seen: set[str] = set()
     for item in data:
-        if not isinstance(item, dict) or set(item) != {"type", "question", "answer"}:
+        if not isinstance(item, dict) or set(item) != {"type", "question", "answer", "id"}:
             raise SparkFileError(
-                "each record must be an object with keys type, question, and answer"
+                "each record must be an object with keys type, question, answer, and id"
             )
         wire_type = item["type"]
         question = item["question"]
         answer = item["answer"]
+        stored = item["id"]
         if (
             wire_type not in TYPES
             or not isinstance(question, str)
             or not isinstance(answer, str)
+            or not isinstance(stored, str)
+            or _ID_RE.fullmatch(stored) is None
         ):
             raise SparkFileError(
-                "type must be one of S, P, A, R, K, and question and answer must be strings"
+                "type must be one of S, P, A, R, K, question and answer must be strings, "
+                "and id must be 16 lowercase hex characters"
             )
         built = Spark(question, answer, wire_type)
+        if built.id != stored:
+            raise SparkFileError("stored id does not match the record")
         if built.id in seen:
             raise SparkFileError("duplicate id")
         seen.add(built.id)

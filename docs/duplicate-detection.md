@@ -1,6 +1,6 @@
 # Duplicate flagging: proposed evolution
 
-Status: design suggestions from Sol for [#21](https://github.com/gdsrvnt/sparks/issues/21), not implemented. The CLI currently replaces only by exact decoded question in the target file. Question is the replacement key; the derived content hash changes with the answer or type.
+Status: design suggestions from Sol for [#21](https://github.com/gdsrvnt/sparks/issues/21), not implemented. The CLI currently replaces only by exact decoded question in the target file. Question is the replacement key; the stored content id changes with the answer or type.
 
 ## Keep matching and flagging separate
 

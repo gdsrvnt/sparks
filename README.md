@@ -45,7 +45,7 @@ In a given directory, the sparks.json holds question answer pairs that pertain t
 
 ### `sparks entry add`
 
-`bin/sparks` adds one record at a time to a `sparks.json`. It is a [uv](https://docs.astral.sh/uv/) script, so uv installs its one dependency, `jsonschema`, on first run. It works in the current directory, so run it from the project that keeps the `sparks.json`:
+`bin/sparks` adds one record at a time to a `sparks.json`. It is a [uv](https://docs.astral.sh/uv/) script, so uv installs its dependencies, `jsonschema` and `xxhash`, on first run. It works in the current directory, so run it from the project that keeps the `sparks.json`:
 
 ```sh
 cd path/to/project
@@ -54,8 +54,8 @@ path/to/sparks/bin/sparks entry add --json '{"type":"S","question":"What is Spar
 ```
 
 - `--path <path>` names the file. Without it, the command uses `sparks.json` in the current directory. A missing file is created; a missing directory is not.
-- `--json <json>` is one record. It must match `spark.schema.json`: `type` is `S`, `P`, `A`, `R`, or `K`, plus `question` and `answer`. There is no `id` key. The success line prints the id `spark_id.py` derives; that id is not written to the file.
-- The command matches `question` exactly within the target file. One match replaces the whole record (including `type` and `answer`) in place; no match appends. Matching compares decoded JSON strings, with no trimming, case folding, punctuation removal, or Unicode normalization. Different JSON escape spellings of the same string match. An identical record succeeds without rewriting; the success line remains `added <id> to <path>` for both adds and replacements. Changing the content changes the derived id.
+- `--json <json>` is one record: `type` is `S`, `P`, `A`, `R`, or `K`, plus `question` and `answer`. Leave `id` out; the command refuses it. The command assigns the id on ingress, writes it into the record, and prints it on the success line. The id is the XXH3-64 hash of the record's content, as `spark_id.py` derives it (see [docs/format.md](docs/format.md)).
+- The command matches `question` exactly within the target file. One match replaces the whole record (including `type` and `answer`) in place; no match appends. Matching compares decoded JSON strings, with no trimming, case folding, punctuation removal, or Unicode normalization. Different JSON escape spellings of the same string match. An identical record succeeds without rewriting; the success line remains `added <id> to <path>` for both adds and replacements. Changing the content changes the stored id.
 - Multiple exact-question matches are ambiguous: the command refuses without writing, even if one record is identical to the incoming record. Resolve them manually first; the CLI never chooses the first match or silently deletes duplicates.
 - The command refuses invalid JSON, a schema failure, and an existing file that is not valid. It also refuses duplicate keys in a JSON object, which `spark_id.py` lets through, because rewriting the file would keep only one of them. A refusal exits 1 with one line on stderr and leaves the file alone.
 - Each add rewrites the whole file with two-space indents and unescaped UTF-8, so a hand-formatted file is reformatted on its first add. The new file goes to a temp file in the same directory, `os.replace` moves it into place, and the file is read back and checked. Exit status 3 means it was written but read back different. Symlinks are followed and the mode is kept, but hard links, the owner, ACLs, and extended attributes do not carry over to the new file.

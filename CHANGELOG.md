@@ -8,7 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- `spark.schema.json`: `type` must be one of `S`, `P`, `A`, `R`, or `K`. Records no longer have an `id` key. `spark.json`, `spark_id.py`, and `bin/sparks` follow that shape. The derived id is still printed on add, but it is not stored.
+- `spark.schema.json`: `type` must be one of `S`, `P`, `A`, `R`, or `K`. `spark.json`, `spark_id.py`, and `bin/sparks` follow that shape.
+- Ids are stored again, and they are now XXH3-64 instead of truncated SHA-256 ([#24](https://github.com/gdsrvnt/sparks/discussions/24)). Every record requires an `id` of 16 lowercase hex characters, the XXH3-64 digest of the same canonical JSON of answer, question, and type. `spark_id.load` refuses a stored id that does not match. `bin/sparks entry add` assigns the id on ingress, writes it, and prints it; a `--json` record that carries an `id` is refused. Files written without ids by the earlier unreleased CLI need ids added. `spark_id.py` and `bin/sparks` now depend on `xxhash`.
 
 ### Added
 

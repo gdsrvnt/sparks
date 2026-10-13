@@ -1,13 +1,13 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["jsonschema>=4.18"]
+# dependencies = ["jsonschema>=4.18", "xxhash>=3.4"]
 # ///
 
 """``sparks entry add`` adds or replaces one SPARK record by exact question.
 
 The record shape comes from ``spark.schema.json``. ``spark_id.py`` derives
-the content id printed after a successful add. Neither id nor extra keys are stored.
+the content id, which the add assigns to the record, writes, and prints.
 Both modules are read from the repository root, the parent of ``bin/``.
 """
 
@@ -46,10 +46,11 @@ UNVERIFIED = 3  # exit status: written, but reading it back did not give what wa
 ADD_DESCRIPTION = """\
 Add or replace one SPARK record in a spark file.
 
-The record must match spark.schema.json: type is S, P, A, R, or K, with a
-question and an answer, and no id key. spark_id.py still derives an id, the
-last 16 hex characters of SHA-256 over the compact, key-sorted JSON of answer,
-question, and type. That id is printed, not stored. A missing file is
+The record is type (S, P, A, R, or K), question, and answer, with no id key:
+the id is assigned here, on ingress. spark_id.py derives it as the 16 hex
+characters of XXH3-64 over the compact, key-sorted JSON of answer, question,
+and type. The stored record, id included, must match spark.schema.json, and
+the id is printed. A missing file is
 created as [] plus the record. An existing file must itself be valid.
 An exact question match replaces the entire record in its current position,
 even if type changes; no match appends. Matching uses decoded strings without
@@ -164,19 +165,22 @@ def _schema_problems(instance: object, skip: int = 0) -> str:
 
 
 def parse_record(text: str) -> dict[str, str]:
-    """The --json record, checked, with keys in the order type, question, answer."""
+    """The checked --json record plus its assigned id, keyed type, question, answer, id."""
     record = _parse(text, "--json")
     if not isinstance(record, dict):
         raise Rejected("--json", "expected one JSON object, a single SPARK record")
-    # The schema describes the file, so check the record as a one-item file.
-    problems = _schema_problems([record], skip=1)
+    if "id" in record:
+        raise Rejected("--json", "id is assigned by sparks on add; leave it out")
+    # The schema describes stored records, so check the record with a placeholder id
+    # as a one-item file. The real id needs valid fields to compute.
+    problems = _schema_problems([{**record, "id": "0" * 16}], skip=1)
     if problems:
         raise Rejected("--json", problems)
     try:
         spark = Spark(record["question"], record["answer"], record["type"])
     except SparkFileError as exc:  # spark_id cannot hash a lone surrogate, or a bad type
         raise Rejected("--json", "question and answer must be valid UTF-8 text") from exc
-    return {"type": spark.type, "question": spark.question, "answer": spark.answer}
+    return {"type": spark.type, "question": spark.question, "answer": spark.answer, "id": spark.id}
 
 
 def read_file(path: Path, label: str) -> list[dict[str, str]]:
@@ -295,7 +299,7 @@ def _existing(target: Path, label: str) -> tuple[list[dict[str, str]], int]:
 
 
 def add(path: Path, record_json: str) -> str:
-    """Add or replace by exact question in the file at path and return its content id."""
+    """Add or replace by exact question in the file at path and return the id it assigned."""
     record = parse_record(record_json)
     label = _show(path)
     try:
@@ -311,7 +315,6 @@ def add(path: Path, record_json: str) -> str:
         raise Rejected(label, f"directory {_show(target.parent)} does not exist")
     with _locked(target.parent, label):
         records, mode = _existing(target, label)
-        incoming = Spark(record["question"], record["answer"], record["type"])
         matches = [
             i for i, existing in enumerate(records)
             if existing["question"] == record["question"]
@@ -325,7 +328,7 @@ def add(path: Path, record_json: str) -> str:
         if matches:
             index = matches[0]
             if records[index] == record:
-                return incoming.id
+                return record["id"]
             records[index] = record
         else:
             records.append(record)
@@ -338,7 +341,7 @@ def add(path: Path, record_json: str) -> str:
         if written != records:
             problem = "written, but another program changed it before it was read back"
             raise Rejected(label, problem, UNVERIFIED)
-    return incoming.id
+    return record["id"]
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -369,7 +372,7 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
         dest="record",
         metavar="<json>",
-        help='one record: {"type": "S"|"P"|"A"|"R"|"K", "question": ..., "answer": ...}',
+        help='one record, no id: {"type": "S"|"P"|"A"|"R"|"K", "question": ..., "answer": ...}',
     )
     return parser
 

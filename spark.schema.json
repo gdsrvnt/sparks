@@ -2,18 +2,19 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/gdsrvnt/sparks/main/spark.schema.json",
   "title": "spark.json",
-  "description": "A JSON array of SPARK records. type is one of S, P, A, R, or K. Records have no id key. This schema does not describe the agent skill in SKILL.md.",
+  "description": "A JSON array of SPARK records. type is one of S, P, A, R, or K. id is the XXH3-64 content id that bin/sparks assigns on add; spark_id.py checks it. This schema does not describe the agent skill in SKILL.md.",
   "type": "array",
   "items": { "$ref": "#/$defs/spark" },
   "$defs": {
     "spark": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "question", "answer"],
+      "required": ["type", "question", "answer", "id"],
       "properties": {
         "type": { "enum": ["S", "P", "A", "R", "K"] },
         "question": { "type": "string" },
-        "answer": { "type": "string" }
+        "answer": { "type": "string" },
+        "id": { "type": "string", "pattern": "^[0-9a-f]{16}$" }
       }
     }
   }
