@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- `bin/sparks entry add [--path <path>] --json <json>`, a uv script that appends one SPARK record to `./sparks.json` or `--path`. It checks the record against `spark.schema.json` and the `spark_id.py` id rule, refuses a duplicate id or an invalid existing file, and writes atomically. Replace is a TODO ([#21](https://github.com/gdsrvnt/sparks/issues/21)).
+- `bin/sparks entry add [--path <path>] --json <json>`, a uv script that appends one SPARK record to `./sparks.json` or `--path`. It checks the record against `spark.schema.json` and the `spark_id.py` id rule, refuses a duplicate id or an invalid existing file, writes atomically, and on POSIX locks the directory so concurrent adds take turns. Replace is a TODO ([#21](https://github.com/gdsrvnt/sparks/issues/21)).
 - `tests/test_sparks.py`, run with `uv run tests/test_sparks.py`.
 
 ## [0.1.0] - 2026-10-12 (plugin package)

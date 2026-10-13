@@ -23,4 +23,4 @@ The same question and answer produce the same id on every machine. `connect` in 
 
 `bin/spark` is a placeholder. It has no features.
 
-`bin/sparks entry add` appends one record to a file. It checks the record and the file with `spark.schema.json` and `spark_id.py`. The README shows how to use it.
+`bin/sparks entry add` appends one record to a file. It checks the record and the file with `spark.schema.json` and `spark_id.py`. Its default file is `sparks.json`, the name the README uses; `spark.json` in this repository is an example. The README shows how to use it.

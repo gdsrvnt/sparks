@@ -28,7 +28,7 @@ sys.path.insert(0, str(ROOT))
 
 import spark_id  # noqa: E402
 
-posix = pytest.mark.skipif(os.name != "posix", reason="needs POSIX modes, symlinks, or signals")
+posix = pytest.mark.skipif(os.name != "posix", reason="needs POSIX modes, signals, or flock")
 
 
 def _import_cli():
@@ -55,16 +55,34 @@ FIRST = spark()
 SECOND = spark("Who reviews skill changes?", "Anyone who did not write them.")
 
 
-def sparks(*args, cwd):
-    """Run bin/sparks in a child process, the way a shell would."""
+def sparks(*args, cwd, env=None, **kwargs):
+    """Run bin/sparks in a child process, the way a shell would.
+
+    env only adds variables. The full environment stays a local, so a failing
+    test's traceback does not print it.
+    """
+    environment = {**os.environ, "COLUMNS": "80", **(env or {})}  # COLUMNS: help wrapping
     return subprocess.run(
-        [sys.executable, str(BIN), *args], cwd=cwd, capture_output=True, encoding="utf-8"
+        [sys.executable, str(BIN), *args],
+        cwd=cwd,
+        capture_output=True,
+        encoding="utf-8",
+        env=environment,
+        **kwargs,
     )
 
 
-def add(path, record, *, cwd=None):
+def add(path, record, *, cwd=None, **kwargs):
     text = record if isinstance(record, str) else json.dumps(record)
-    return sparks("entry", "add", "--path", str(path), "--json", text, cwd=cwd or path.parent)
+    return sparks(
+        "entry", "add", "--path", str(path), "--json", text, cwd=cwd or path.parent, **kwargs
+    )
+
+
+def command(path, record):
+    """The argv of a bin/sparks run that adds record to path."""
+    args = ["entry", "add", "--path", str(path), "--json", json.dumps(record)]
+    return [sys.executable, str(BIN), *args]
 
 
 def run_main(path, record):
@@ -79,12 +97,12 @@ def seed(path, records):
 
 
 def others(directory, name="sparks.json"):
-    """Everything in directory except the spark file, such as leftover temp files."""
+    """Everything in directory except the spark file: leftover temp or lock files."""
     return sorted(p.name for p in directory.iterdir() if p.name != name)
 
 
-def assert_rejected(result, message):
-    assert result.returncode == 1
+def assert_rejected(result, message, code=1):
+    assert result.returncode == code
     assert result.stdout == ""
     assert result.stderr.startswith("sparks: "), result.stderr
     assert result.stderr.count("\n") == 1, result.stderr  # one line, no traceback
@@ -109,7 +127,8 @@ def test_output_matches_the_repo_example_byte_for_byte(tmp_path):
     path = tmp_path / "sparks.json"
     (record,) = json.loads(example.read_bytes())
     assert add(path, record).returncode == 0
-    assert path.read_bytes() == example.read_bytes()
+    # A Windows checkout may have turned the example's line endings into CRLF.
+    assert path.read_bytes() == example.read_bytes().replace(b"\r\n", b"\n")
 
 
 def test_default_path_is_sparks_json_in_the_working_directory(tmp_path):
@@ -190,6 +209,14 @@ def test_written_file_passes_spark_id_and_the_schema(tmp_path):
     Draft202012Validator(schema).validate(json.loads(path.read_bytes()))
 
 
+@posix
+def test_a_file_name_near_the_length_limit_works(tmp_path):
+    path = tmp_path / ("s" * 246 + ".json")  # 251 bytes; most file systems allow 255
+    assert add(path, FIRST).returncode == 0
+    assert json.loads(path.read_bytes()) == [FIRST]
+    assert others(tmp_path, path.name) == []
+
+
 # rejections: --json
 
 DROP = object()
@@ -200,9 +227,17 @@ def _payload(**changes):
     return json.dumps({key: value for key, value in record.items() if value is not DROP})
 
 
+def _raw_question(raw):
+    """A payload whose question is the raw JSON text raw."""
+    return _payload(question="RAW").replace('"RAW"', raw)
+
+
 BAD_INPUT = [
     pytest.param("{", "--json: invalid JSON: ", id="truncated"),
     pytest.param("", "--json: invalid JSON: ", id="empty"),
+    pytest.param(_payload() + " x", "--json: invalid JSON: Extra data", id="trailing-data"),
+    pytest.param(_raw_question("NaN"), "--json: NaN is not valid JSON", id="nan"),
+    pytest.param(_raw_question("9" * 5000), "--json: number has too many digits", id="huge-int"),
     pytest.param(json.dumps([FIRST]), "--json: expected one JSON object", id="array"),
     pytest.param('"text"', "--json: expected one JSON object", id="string"),
     pytest.param(
@@ -223,6 +258,7 @@ BAD_INPUT = [
     pytest.param(
         _payload(question=1), "--json: question: 1 is not of type 'string'", id="question-int"
     ),
+    pytest.param(_raw_question("[" * 500 + "]" * 500), "--json: question: ", id="question-deep"),
     pytest.param(
         _payload(answer=None), "--json: answer: None is not of type 'string'", id="answer-null"
     ),
@@ -236,11 +272,20 @@ BAD_INPUT = [
     ),
     pytest.param(
         _payload(id="0" * 16),
-        "--json: id 0000000000000000 does not match question and answer"
+        "--json: id '0000000000000000' does not match question and answer"
         f" (spark_id.py gives {FIRST['id']})",
         id="id-mismatch",
     ),
-    pytest.param(_payload(question="\ud800"), "--json: preimage is not UTF-8", id="lone-surrogate"),
+    pytest.param(  # Python's re lets the schema's $ match before a final newline
+        _payload(id=FIRST["id"] + "\n"),
+        f"--json: id '{FIRST['id']}\\n' does not match question and answer",
+        id="id-trailing-newline",
+    ),
+    pytest.param(
+        _payload(question="\ud800"),
+        "--json: question and answer must be valid UTF-8 text",
+        id="lone-surrogate",
+    ),
 ]
 
 
@@ -266,7 +311,7 @@ def test_rejects_undecodable_argv_bytes_cleanly(tmp_path):
         capture_output=True,
         encoding="utf-8",
     )
-    assert_rejected(result, "sparks: --json: preimage is not UTF-8")
+    assert_rejected(result, "sparks: --json: question and answer must be valid UTF-8 text")
     assert not path.exists()
 
 
@@ -279,6 +324,7 @@ BAD_FILES = [
     pytest.param(b"\xff[]", "file is not UTF-8", id="not-utf8"),
     pytest.param(b"{}", "{} is not of type 'array'", id="object"),
     pytest.param(b"[1]", "[0]: 1 is not of type 'object'", id="not-a-record"),
+    pytest.param(b"[NaN]", "NaN is not valid JSON", id="nan"),
     pytest.param(
         json.dumps([{k: v for k, v in FIRST.items() if k != "id"}]).encode(),
         "[0]: 'id' is a required property",
@@ -307,6 +353,33 @@ def test_rejects_an_invalid_existing_file_without_touching_it(tmp_path, content,
     assert others(tmp_path) == []
 
 
+@pytest.mark.parametrize("subject", ["--json", "file"])
+def test_deeply_nested_json_is_refused_on_one_line(tmp_path, subject):
+    """Python 3.11 to 3.13 hit the recursion limit and 3.14 may not; neither prints a traceback."""
+    deep = "[" * 30_000 + "]" * 30_000  # 60 KB stays under the 128 KiB limit on one argument
+    path = tmp_path / "sparks.json"
+    if subject == "file":
+        path.write_text(deep)
+    result = add(path, deep if subject == "--json" else FIRST)
+    assert_rejected(result, f"sparks: {path if subject == 'file' else '--json'}: ")
+    assert path.read_text() == deep if subject == "file" else not path.exists()
+
+
+def test_schema_problems_are_capped_and_clipped(tmp_path):
+    path = tmp_path / "sparks.json"
+    path.write_bytes(
+        json.dumps([{**spark(f"Q{i}?", "A."), "type": "x"} for i in range(10)]).encode()
+    )
+    result = add(path, FIRST)
+    assert_rejected(result, "[2].type: 'SPARK' was expected; and 7 more")
+    assert result.stderr.count("was expected") == 3
+    huge = tmp_path / "package.json"  # an object, not a spark file
+    huge.write_bytes(json.dumps({f"key{i}": "v" * 100 for i in range(10_000)}).encode())
+    result = add(huge, FIRST)
+    assert_rejected(result, "is not of type 'array'")
+    assert len(result.stderr) < len(str(huge)) + 300
+
+
 def test_rejects_an_id_already_in_the_file(tmp_path):
     path = tmp_path / "sparks.json"
     before = seed(path, [FIRST, SECOND])
@@ -320,12 +393,29 @@ def test_rejects_a_directory_as_the_path(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
-def test_rejects_a_missing_parent_directory(tmp_path):
+def test_rejects_a_missing_directory(tmp_path):
     path = tmp_path / "missing" / "sparks.json"
     assert_rejected(
-        add(path, FIRST, cwd=tmp_path), f"sparks: {path}: parent directory does not exist"
+        add(path, FIRST, cwd=tmp_path),
+        f"sparks: {path}: directory {tmp_path / 'missing'} does not exist",
     )
     assert list(tmp_path.iterdir()) == []
+
+
+def test_control_characters_in_the_path_stay_on_one_line(tmp_path):
+    path = tmp_path / "two\nlines" / "sparks.json"
+    assert_rejected(add(path, FIRST, cwd=tmp_path), "two\\nlines")
+
+
+@posix
+@pytest.mark.skipif(os.name == "posix" and os.geteuid() == 0, reason="root ignores file modes")
+def test_rejects_a_read_only_file(tmp_path):
+    path = tmp_path / "sparks.json"
+    before = seed(path, [FIRST])
+    path.chmod(0o444)
+    assert_rejected(add(path, SECOND), f"sparks: {path}: Permission denied")
+    assert path.read_bytes() == before
+    assert others(tmp_path) == []
 
 
 @pytest.mark.parametrize(
@@ -340,6 +430,53 @@ def test_usage_errors_exit_2_without_writing(tmp_path, args):
     assert list(tmp_path.iterdir()) == []
 
 
+# symlinks, modes, and other file identity
+
+
+@posix
+def test_writes_through_a_symlink(tmp_path):
+    shared = tmp_path / "shared.json"
+    seed(shared, [FIRST])
+    link = tmp_path / "sparks.json"
+    link.symlink_to("shared.json")
+    assert add(link, SECOND).returncode == 0
+    assert link.is_symlink()
+    assert json.loads(shared.read_bytes()) == [FIRST, SECOND]
+
+
+@posix
+@pytest.mark.parametrize("loop", [["sparks.json"], ["sparks.json", "other.json"]], ids=len)
+def test_rejects_a_symlink_loop_and_keeps_the_link(tmp_path, loop):
+    for name, points_to in zip(loop, loop[1:] + loop[:1], strict=True):
+        (tmp_path / name).symlink_to(points_to)
+    path = tmp_path / "sparks.json"
+    assert_rejected(add(path, FIRST), f"sparks: {path}: cannot resolve symlink")
+    assert path.is_symlink()
+
+
+@posix
+def test_dangling_symlink_into_a_missing_directory_names_that_directory(tmp_path):
+    link = tmp_path / "sparks.json"
+    link.symlink_to("gone/sparks.json")
+    assert_rejected(add(link, FIRST), f"directory {tmp_path / 'gone'} does not exist")
+
+
+@posix
+def test_keeps_the_mode_of_an_existing_file(tmp_path):
+    path = tmp_path / "sparks.json"
+    seed(path, [FIRST])
+    path.chmod(0o640)
+    assert add(path, SECOND).returncode == 0
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+
+@posix
+def test_new_file_mode_follows_the_umask(tmp_path):
+    path = tmp_path / "sparks.json"
+    assert add(path, FIRST, umask=0o027).returncode == 0
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+
 # atomic write
 
 
@@ -352,7 +489,7 @@ def test_failed_replace_keeps_the_old_file_and_no_temp_file(tmp_path, monkeypatc
 
     monkeypatch.setattr(os, "replace", fail)
     assert run_main(path, SECOND) == 1
-    assert capsys.readouterr().err == f"sparks: {path}: simulated I/O error\n"
+    assert capsys.readouterr().err == f"sparks: {path}: cannot write: simulated I/O error\n"
     assert path.read_bytes() == before
     assert others(tmp_path) == []
 
@@ -381,7 +518,7 @@ def test_disk_full_halfway_through_the_write_keeps_the_old_file(tmp_path, monkey
 
     monkeypatch.setattr(os, "fdopen", lambda fd, *a, **k: HalfWriter(real_fdopen(fd, *a, **k)))
     assert run_main(path, SECOND) == 1
-    assert capsys.readouterr().err == f"sparks: {path}: No space left on device\n"
+    assert capsys.readouterr().err == f"sparks: {path}: cannot write: No space left on device\n"
     assert path.read_bytes() == before
     assert others(tmp_path) == []
 
@@ -401,8 +538,8 @@ def test_interrupt_before_replace_removes_the_temp_file(tmp_path, monkeypatch):
 
 
 @posix
-def test_kill_before_replace_keeps_the_old_file(tmp_path):
-    """SIGKILL skips all cleanup: the old file stays whole, and one hidden temp file is left."""
+def test_kill_before_replace_keeps_the_old_file_and_the_next_add_works(tmp_path):
+    """SIGKILL skips all cleanup: the old file stays whole, and the temp and lock files stay."""
     path = tmp_path / "sparks.json"
     before = seed(path, [FIRST])
     die_at_replace = (
@@ -417,8 +554,14 @@ def test_kill_before_replace_keeps_the_old_file(tmp_path):
     )
     assert result.returncode == -signal.SIGKILL
     assert path.read_bytes() == before
-    (leftover,) = others(tmp_path)
-    assert leftover.startswith(".sparks.json.") and leftover.endswith(".tmp")
+    leftovers = set(others(tmp_path))
+    assert ".sparks.lock" in leftovers
+    (temp,) = leftovers - {".sparks.lock"}
+    assert temp.startswith(".sparks-") and temp.endswith(".tmp")
+    # The dead process's lock went with it; the next add takes the file and removes it.
+    assert add(path, SECOND).returncode == 0
+    assert json.loads(path.read_bytes()) == [FIRST, SECOND]
+    assert others(tmp_path) == [temp]
 
 
 def test_invalid_new_content_never_replaces_the_file(tmp_path, monkeypatch, capsys):
@@ -434,14 +577,12 @@ def test_invalid_new_content_never_replaces_the_file(tmp_path, monkeypatch, caps
 @pytest.mark.parametrize(
     ("intruder", "message"),
     [
-        ("[]\n", "changed by someone else during the write"),
-        ("[", "re-validation after write failed"),
+        ("[]\n", "written, but another program changed it before it was read back"),
+        ("[", "written, but invalid when read back: invalid JSON: "),
     ],
     ids=["valid-but-different", "invalid"],
 )
-def test_revalidation_reports_a_file_changed_after_replace(
-    tmp_path, monkeypatch, capsys, intruder, message
-):
+def test_a_file_changed_after_replace_exits_3(tmp_path, monkeypatch, capsys, intruder, message):
     path = tmp_path / "sparks.json"
     seed(path, [FIRST])
     real_replace = os.replace
@@ -451,46 +592,118 @@ def test_revalidation_reports_a_file_changed_after_replace(
         Path(dst).write_bytes(intruder.encode())
 
     monkeypatch.setattr(os, "replace", replace_then_clobber)
-    assert run_main(path, SECOND) == 1
-    assert message in capsys.readouterr().err
+    assert run_main(path, SECOND) == 3
+    assert capsys.readouterr().err.startswith(f"sparks: {path}: {message}")
+
+
+# the lock
 
 
 @posix
-def test_keeps_the_mode_of_an_existing_file(tmp_path):
+def test_concurrent_adds_all_land(tmp_path):
+    records = [spark(f"Question {i}?", f"Answer {i}.") for i in range(20)]
+    children = [
+        subprocess.Popen(
+            [sys.executable, str(BIN), "entry", "add", "--json", json.dumps(record)],
+            cwd=tmp_path,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        for record in records
+    ]
+    assert [child.wait(timeout=120) for child in children] == [0] * len(records)
+    written = json.loads((tmp_path / "sparks.json").read_bytes())
+    assert sorted(written, key=lambda r: r["id"]) == sorted(records, key=lambda r: r["id"])
+    assert others(tmp_path) == []
+
+
+@posix
+def test_an_add_waits_for_the_lock_file_the_path_names(tmp_path):
+    """A waiter that wakes up holding a removed lock file must wait for the new one."""
+    import fcntl
+
+    def take_lock():
+        fd = os.open(lock, os.O_RDWR | os.O_CREAT)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return fd
+
     path = tmp_path / "sparks.json"
-    seed(path, [FIRST])
-    path.chmod(0o640)
-    assert add(path, SECOND).returncode == 0
-    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+    before = seed(path, [FIRST])
+    lock = tmp_path / ".sparks.lock"
+    first_holder = take_lock()
+    child = subprocess.Popen(command(path, SECOND), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        with pytest.raises(subprocess.TimeoutExpired):
+            child.wait(timeout=1)  # blocked on the first holder's lock file
+        os.unlink(lock)  # the first holder lets go the way sparks does: remove, then unlock
+        second_holder = take_lock()  # and another add takes a fresh lock file at once
+        os.close(first_holder)
+        with pytest.raises(subprocess.TimeoutExpired):
+            child.wait(timeout=1)  # woke up on the removed file, so it waits again
+        assert path.read_bytes() == before
+        os.unlink(lock)
+        os.close(second_holder)
+        assert child.wait(timeout=60) == 0
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+    assert json.loads(path.read_bytes()) == [FIRST, SECOND]
+    assert others(tmp_path) == []
+
+
+# stdout and stderr
 
 
 @posix
-def test_new_file_mode_follows_the_umask(tmp_path):
+def test_closed_stdout_does_not_turn_a_write_into_a_failure(tmp_path):
     path = tmp_path / "sparks.json"
-    argv = ["entry", "add", "--path", str(path), "--json", json.dumps(FIRST)]
-    result = subprocess.run([sys.executable, str(BIN), *argv], capture_output=True, umask=0o027)
-    assert result.returncode == 0, result.stderr
-    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+    result = subprocess.run(
+        command(path, FIRST),
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
+        preexec_fn=lambda: os.close(1),
+    )
+    assert (result.returncode, result.stderr) == (0, "")
+    assert json.loads(path.read_bytes()) == [FIRST]
 
 
 @posix
-def test_writes_through_a_symlink(tmp_path):
-    shared = tmp_path / "shared.json"
-    seed(shared, [FIRST])
-    link = tmp_path / "sparks.json"
-    link.symlink_to("shared.json")
-    assert add(link, SECOND).returncode == 0
-    assert link.is_symlink()
-    assert json.loads(shared.read_bytes()) == [FIRST, SECOND]
+def test_broken_pipe_on_stdout_does_not_turn_a_write_into_a_failure(tmp_path):
+    path = tmp_path / "sparks.json"
+    read_end, write_end = os.pipe()
+    os.close(read_end)  # the reader is gone before sparks writes anything
+    try:
+        result = subprocess.run(
+            command(path, FIRST),
+            stdout=write_end,
+            stderr=subprocess.PIPE,
+            encoding="utf-8",
+        )
+    finally:
+        os.close(write_end)
+    assert (result.returncode, result.stderr) == (0, "")
+    assert json.loads(path.read_bytes()) == [FIRST]
+
+
+def test_a_path_stdout_cannot_encode_is_escaped(tmp_path):
+    path = tmp_path / "café.json"
+    result = add(path, FIRST, env={"PYTHONIOENCODING": "ascii:strict"})
+    shown = str(path).encode("ascii", "backslashreplace").decode("ascii")
+    assert (result.returncode, result.stdout) == (0, f"added {FIRST['id']} to {shown}\n")
+    assert json.loads(path.read_bytes()) == [FIRST]
 
 
 # help, TODO, and the uv entry point
 
 
-def test_help_shows_the_usage_and_the_replace_todo(tmp_path):
+def test_help_shows_the_usage_exit_codes_and_the_replace_todo(tmp_path):
     result = sparks("entry", "add", "--help", cwd=tmp_path)
     assert result.returncode == 0
     assert result.stdout.startswith("usage: sparks entry add [-h] [--path <path>] --json <json>\n")
+    assert "exit status: 0 added; 1 refused, nothing written; 2 usage error; 3 written" in (
+        result.stdout
+    )
     assert "TODO: replace is not supported yet" in result.stdout
     assert ISSUE_21 in result.stdout
 
