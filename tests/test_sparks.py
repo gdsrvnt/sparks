@@ -42,13 +42,16 @@ def _import_cli():
 cli = _import_cli()
 
 
-def spark(question="Why is main protected?", answer="Every merge must pass CI first."):
+def spark(question="Why is main protected?", answer="Every merge must pass CI first.", spark_type="S"):
     return {
-        "type": "SPARK",
+        "type": spark_type,
         "question": question,
         "answer": answer,
-        "id": spark_id.Spark(question, answer).id,
     }
+
+
+def record_id(record):
+    return spark_id.Spark(record["question"], record["answer"], record["type"]).id
 
 
 FIRST = spark()
@@ -116,7 +119,7 @@ def test_creates_a_missing_file_with_the_record(tmp_path):
     path = tmp_path / "sparks.json"
     result = add(path, FIRST)
     assert result.returncode == 0, result.stderr
-    assert result.stdout == f"added {FIRST['id']} to {path}\n"
+    assert result.stdout == f"added {record_id(FIRST)} to {path}\n"
     assert result.stderr == ""
     assert json.loads(path.read_bytes()) == [FIRST]
     assert others(tmp_path) == []
@@ -135,7 +138,7 @@ def test_default_path_is_sparks_json_in_the_working_directory(tmp_path):
     for record in (FIRST, SECOND):  # creates, then appends
         result = sparks("entry", "add", "--json", json.dumps(record), cwd=tmp_path)
         assert result.returncode == 0, result.stderr
-        assert result.stdout == f"added {record['id']} to sparks.json\n"
+        assert result.stdout == f"added {record_id(record)} to sparks.json\n"
     assert json.loads((tmp_path / "sparks.json").read_bytes()) == [FIRST, SECOND]
     assert others(tmp_path) == []
 
@@ -152,38 +155,34 @@ def test_relative_path_resolves_against_the_working_directory(tmp_path):
 def test_appends_after_existing_records_and_keeps_them(tmp_path):
     path = tmp_path / "sparks.json"
     # Hand-written: compact, with keys in a different order.
-    hand_written = {key: FIRST[key] for key in ("id", "answer", "question", "type")}
+    hand_written = {key: FIRST[key] for key in ("answer", "question", "type")}
     path.write_bytes(json.dumps([hand_written]).encode())
     third = spark("Is a third record kept in order?", "Yes, at the end.")
     assert add(path, SECOND).returncode == 0
     assert add(path, third).returncode == 0
     records = json.loads(path.read_bytes())
     assert records == [FIRST, SECOND, third]
-    assert list(records[0]) == ["id", "answer", "question", "type"]
+    assert list(records[0]) == ["answer", "question", "type"]
 
 
 def test_new_record_is_stored_in_schema_key_order(tmp_path):
     path = tmp_path / "sparks.json"
-    shuffled = json.dumps({key: FIRST[key] for key in ("id", "answer", "question", "type")})
+    shuffled = json.dumps({key: FIRST[key] for key in ("answer", "question", "type")})
     assert add(path, shuffled).returncode == 0
-    assert list(json.loads(path.read_bytes())[0]) == ["type", "question", "answer", "id"]
+    assert list(json.loads(path.read_bytes())[0]) == ["type", "question", "answer"]
 
 
 def test_non_ascii_is_kept_verbatim_and_hashed_by_the_spec_rule(tmp_path):
     question = "¿Por qué “verbatim”?"
     answer = "Naïve café prose — 日本語 🙂, kept as written."
     preimage = json.dumps(
-        {"answer": answer, "question": question, "type": "SPARK"},
+        {"answer": answer, "question": question, "type": "S"},
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
     )
-    record = {
-        "type": "SPARK",
-        "question": question,
-        "answer": answer,
-        "id": hashlib.sha256(preimage.encode("utf-8")).hexdigest()[-16:],
-    }
+    record = {"type": "S", "question": question, "answer": answer}
+    assert record_id(record) == hashlib.sha256(preimage.encode("utf-8")).hexdigest()[-16:]
     path = tmp_path / "sparks.json"
     result = add(path, record)
     assert result.returncode == 0, result.stderr
@@ -245,7 +244,6 @@ BAD_INPUT = [
         "--json: duplicate key 'question'",
         id="duplicate-key",
     ),
-    pytest.param(_payload(id=DROP), "--json: 'id' is a required property", id="missing-id"),
     pytest.param(
         _payload(answer=DROP), "--json: 'answer' is a required property", id="missing-answer"
     ),
@@ -254,7 +252,16 @@ BAD_INPUT = [
         "--json: Additional properties are not allowed ('extra' was unexpected)",
         id="extra-key",
     ),
-    pytest.param(_payload(type="spark"), "--json: type: 'SPARK' was expected", id="wrong-type"),
+    pytest.param(
+        _payload(type="spark"),
+        "--json: type: 'spark' is not one of ['S', 'P', 'A', 'R', 'K']",
+        id="wrong-type",
+    ),
+    pytest.param(
+        _payload(type="SPARK"),
+        "--json: type: 'SPARK' is not one of ['S', 'P', 'A', 'R', 'K']",
+        id="type-spark-word",
+    ),
     pytest.param(
         _payload(question=1), "--json: question: 1 is not of type 'string'", id="question-int"
     ),
@@ -263,23 +270,9 @@ BAD_INPUT = [
         _payload(answer=None), "--json: answer: None is not of type 'string'", id="answer-null"
     ),
     pytest.param(
-        _payload(id="ABCDEF0123456789"),
-        "--json: id: 'ABCDEF0123456789' does not match '^[0-9a-f]{16}$'",
-        id="id-uppercase",
-    ),
-    pytest.param(
-        _payload(id="abc"), "--json: id: 'abc' does not match '^[0-9a-f]{16}$'", id="id-short"
-    ),
-    pytest.param(
         _payload(id="0" * 16),
-        "--json: id '0000000000000000' does not match question and answer"
-        f" (spark_id.py gives {FIRST['id']})",
-        id="id-mismatch",
-    ),
-    pytest.param(  # Python's re lets the schema's $ match before a final newline
-        _payload(id=FIRST["id"] + "\n"),
-        f"--json: id '{FIRST['id']}\\n' does not match question and answer",
-        id="id-trailing-newline",
+        "--json: Additional properties are not allowed ('id' was unexpected)",
+        id="id-not-a-key",
     ),
     pytest.param(
         _payload(question="\ud800"),
@@ -305,7 +298,7 @@ def test_rejects_bad_json_without_touching_the_file(tmp_path, existing, payload,
 @posix
 def test_rejects_undecodable_argv_bytes_cleanly(tmp_path):
     path = tmp_path / "sparks.json"
-    payload = b'{"type": "SPARK", "question": "\xff", "answer": "a", "id": "0000000000000000"}'
+    payload = b'{"type": "S", "question": "\xff", "answer": "a"}'
     result = subprocess.run(
         [sys.executable, str(BIN), "entry", "add", "--path", str(path), "--json", payload],
         capture_output=True,
@@ -326,14 +319,9 @@ BAD_FILES = [
     pytest.param(b"[1]", "[0]: 1 is not of type 'object'", id="not-a-record"),
     pytest.param(b"[NaN]", "NaN is not valid JSON", id="nan"),
     pytest.param(
-        json.dumps([{k: v for k, v in FIRST.items() if k != "id"}]).encode(),
-        "[0]: 'id' is a required property",
-        id="missing-id",
-    ),
-    pytest.param(
         json.dumps([{**FIRST, "id": "0" * 16}]).encode(),
-        "stored id does not match the record",
-        id="wrong-id",
+        "[0]: Additional properties are not allowed ('id' was unexpected)",
+        id="stored-id",
     ),
     pytest.param(json.dumps([FIRST, FIRST]).encode(), "duplicate id", id="duplicate-record"),
     pytest.param(
@@ -371,8 +359,8 @@ def test_schema_problems_are_capped_and_clipped(tmp_path):
         json.dumps([{**spark(f"Q{i}?", "A."), "type": "x"} for i in range(10)]).encode()
     )
     result = add(path, FIRST)
-    assert_rejected(result, "[2].type: 'SPARK' was expected; and 7 more")
-    assert result.stderr.count("was expected") == 3
+    assert_rejected(result, "[2].type: 'x' is not one of ['S', 'P', 'A', 'R', 'K']; and 7 more")
+    assert result.stderr.count("is not one of") == 3
     huge = tmp_path / "package.json"  # an object, not a spark file
     huge.write_bytes(json.dumps({f"key{i}": "v" * 100 for i in range(10_000)}).encode())
     result = add(huge, FIRST)
@@ -383,7 +371,7 @@ def test_schema_problems_are_capped_and_clipped(tmp_path):
 def test_rejects_an_id_already_in_the_file(tmp_path):
     path = tmp_path / "sparks.json"
     before = seed(path, [FIRST, SECOND])
-    assert_rejected(add(path, FIRST), f"sparks: {path}: id {FIRST['id']} is already in the file")
+    assert_rejected(add(path, FIRST), f"sparks: {path}: id {record_id(FIRST)} is already in the file")
     assert path.read_bytes() == before
     assert others(tmp_path) == []
 
@@ -567,7 +555,7 @@ def test_kill_before_replace_keeps_the_old_file_and_the_next_add_works(tmp_path)
 def test_invalid_new_content_never_replaces_the_file(tmp_path, monkeypatch, capsys):
     path = tmp_path / "sparks.json"
     before = seed(path, [FIRST])
-    monkeypatch.setattr(cli, "render", lambda records: '[{"type": "SPARK"}]\n')
+    monkeypatch.setattr(cli, "render", lambda records: '[{"type": "S"}]\n')
     assert run_main(path, SECOND) == 1
     assert capsys.readouterr().err.startswith(f"sparks: {path} (new content): [0]: ")
     assert path.read_bytes() == before
@@ -613,7 +601,7 @@ def test_concurrent_adds_all_land(tmp_path):
     ]
     assert [child.wait(timeout=120) for child in children] == [0] * len(records)
     written = json.loads((tmp_path / "sparks.json").read_bytes())
-    assert sorted(written, key=lambda r: r["id"]) == sorted(records, key=lambda r: r["id"])
+    assert sorted(written, key=lambda r: r["question"]) == sorted(records, key=lambda r: r["question"])
     assert others(tmp_path) == []
 
 
@@ -690,7 +678,7 @@ def test_a_path_stdout_cannot_encode_is_escaped(tmp_path):
     path = tmp_path / "café.json"
     result = add(path, FIRST, env={"PYTHONIOENCODING": "ascii:strict"})
     shown = str(path).encode("ascii", "backslashreplace").decode("ascii")
-    assert (result.returncode, result.stdout) == (0, f"added {FIRST['id']} to {shown}\n")
+    assert (result.returncode, result.stdout) == (0, f"added {record_id(FIRST)} to {shown}\n")
     assert json.loads(path.read_bytes()) == [FIRST]
 
 
@@ -723,7 +711,7 @@ def test_runs_as_an_executable_uv_script(tmp_path):
         encoding="utf-8",
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout == f"added {FIRST['id']} to sparks.json\n"
+    assert result.stdout == f"added {record_id(FIRST)} to sparks.json\n"
     assert json.loads((tmp_path / "sparks.json").read_bytes()) == [FIRST]
 
 

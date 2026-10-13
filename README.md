@@ -49,12 +49,12 @@ In a given directory, the sparks.json holds question answer pairs that pertain t
 
 ```sh
 cd path/to/project
-path/to/sparks/bin/sparks entry add --json '{"type":"SPARK","question":"What is Spark?","answer":"Spark is a way of gathering, maintaining, and structuring context about a project in Q&A pairs.","id":"107ee97d1abd8e36"}'
-# added 107ee97d1abd8e36 to sparks.json
+path/to/sparks/bin/sparks entry add --json '{"type":"S","question":"What is Spark?","answer":"Spark is a way of gathering, maintaining, and structuring context about a project in Q&A pairs."}'
+# added <id> to sparks.json
 ```
 
 - `--path <path>` names the file. Without it, the command uses `sparks.json` in the current directory. A missing file is created; a missing directory is not.
-- `--json <json>` is one record. It must match `spark.schema.json`, and its `id` must be the id `spark_id.py` derives from the question and answer. On a mismatch, the error prints the expected id.
+- `--json <json>` is one record. It must match `spark.schema.json`: `type` is `S`, `P`, `A`, `R`, or `K`, plus `question` and `answer`. There is no `id` key. The success line prints the id `spark_id.py` derives; that id is not written to the file.
 - The command refuses invalid JSON, a schema failure, a wrong id, an id already in the file, and an existing file that is not valid. It also refuses duplicate keys in a JSON object, which `spark_id.py` lets through, because rewriting the file would keep only one of them. A refusal exits 1 with one line on stderr and leaves the file alone.
 - Each add rewrites the whole file with two-space indents and unescaped UTF-8, so a hand-formatted file is reformatted on its first add. The new file goes to a temp file in the same directory, `os.replace` moves it into place, and the file is read back and checked. Exit status 3 means it was written but read back different. Symlinks are followed and the mode is kept, but hard links, the owner, ACLs, and extended attributes do not carry over to the new file.
 - On POSIX systems such as Linux and macOS, adds in one directory take turns by locking a short-lived `.sparks.lock` file there. Windows has no lock, so run one add per file at a time.

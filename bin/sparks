@@ -6,9 +6,9 @@
 
 """``sparks entry add`` appends one SPARK record to a spark file.
 
-The record shape comes from ``spark.schema.json`` and the id rule from
-``spark_id.py``. Both are read from the repository root, the parent of
-``bin/``. Neither is copied here.
+The record shape comes from ``spark.schema.json``. ``spark_id.py`` derives
+the id used to refuse a duplicate. Neither id nor extra keys are stored.
+Both modules are read from the repository root, the parent of ``bin/``.
 """
 
 import argparse
@@ -47,11 +47,12 @@ UNVERIFIED = 3  # exit status: written, but reading it back did not give what wa
 ADD_DESCRIPTION = """\
 Append one SPARK record to a spark file.
 
-The record must match spark.schema.json, and its id must be the spark_id.py id
-of its question and answer: the last 16 hex characters of SHA-256 over the
-compact, key-sorted JSON of answer, question, and type. A missing file is
+The record must match spark.schema.json: type is S, P, A, R, or K, with a
+question and an answer, and no id key. spark_id.py still derives an id, the
+last 16 hex characters of SHA-256 over the compact, key-sorted JSON of answer,
+question, and type. That id is printed, not stored. A missing file is
 created as [] plus the record. An existing file must itself be valid and must
-not already hold the id. The new file is written to a temp file in the same
+not already hold the same id. The new file is written to a temp file in the same
 directory, validated, moved into place with os.replace, then re-read and
 validated again."""
 
@@ -163,7 +164,7 @@ def _schema_problems(instance: object, skip: int = 0) -> str:
 
 
 def parse_record(text: str) -> dict[str, str]:
-    """The --json record, checked, with keys in the order type, question, answer, id."""
+    """The --json record, checked, with keys in the order type, question, answer."""
     record = _parse(text, "--json")
     if not isinstance(record, dict):
         raise Rejected("--json", "expected one JSON object, a single SPARK record")
@@ -172,16 +173,10 @@ def parse_record(text: str) -> dict[str, str]:
     if problems:
         raise Rejected("--json", problems)
     try:
-        spark = Spark(record["question"], record["answer"])
-    except SparkFileError as exc:  # spark_id cannot hash a lone surrogate
+        spark = Spark(record["question"], record["answer"], record["type"])
+    except SparkFileError as exc:  # spark_id cannot hash a lone surrogate, or a bad type
         raise Rejected("--json", "question and answer must be valid UTF-8 text") from exc
-    if record["id"] != spark.id:
-        raise Rejected(
-            "--json",
-            f"id {record['id']!r} does not match question and answer"
-            f" (spark_id.py gives {spark.id})",
-        )
-    return {"type": "SPARK", "question": spark.question, "answer": spark.answer, "id": spark.id}
+    return {"type": spark.type, "question": spark.question, "answer": spark.answer}
 
 
 def read_file(path: Path, label: str) -> list[dict[str, str]]:
@@ -320,8 +315,10 @@ def add(path: Path, record_json: str) -> str:
         # https://github.com/gdsrvnt/sparks/issues/21. Until then add only appends:
         # an id already in the file is refused, and a record that reuses an
         # existing question with a new answer is appended next to the old one.
-        if any(existing["id"] == record["id"] for existing in records):
-            raise Rejected(label, f"id {record['id']} is already in the file")
+        incoming = Spark(record["question"], record["answer"], record["type"])
+        for existing in records:
+            if Spark(existing["question"], existing["answer"], existing["type"]).id == incoming.id:
+                raise Rejected(label, f"id {incoming.id} is already in the file")
         records.append(record)
         _write_atomic(target, render(records), mode, label)
         try:
@@ -332,7 +329,7 @@ def add(path: Path, record_json: str) -> str:
         if written != records:
             problem = "written, but another program changed it before it was read back"
             raise Rejected(label, problem, UNVERIFIED)
-    return record["id"]
+    return incoming.id
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -363,7 +360,7 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
         dest="record",
         metavar="<json>",
-        help='one record: {"type": "SPARK", "question": ..., "answer": ..., "id": ...}',
+        help='one record: {"type": "S"|"P"|"A"|"R"|"K", "question": ..., "answer": ...}',
     )
     return parser
 
