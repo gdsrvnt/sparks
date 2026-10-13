@@ -18,7 +18,7 @@ These skills are bundled from the same plugin at the same commit. Every file is 
 
 To update them, copy them again from pstack and update this notice.
 
-`skills/spark-verification/` is an adapter over those two bundled skills. `skills/sparks-discuss/` routes to the copied `why` skill. poteto's material in both is under the same MIT License, Copyright (c) 2026 Lauren Tan.
+`skills/spark-verification/` is a separate read-only skill in this plugin and is not an adapter over those two. `skills/sparks-discuss/` routes to the copied `why` skill. poteto's material in the bundled skills and in that route is under the same MIT License, Copyright (c) 2026 Lauren Tan.
 
 ## show-me skill by HumanLayer
 

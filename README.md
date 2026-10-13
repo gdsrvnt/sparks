@@ -4,7 +4,7 @@
 
 ## Purpose
 
-the purpose of the sparks is simple and explicit: They are ammunition for spark-verification, a specialized version of potetos create verification skill that updates or maintains (see maintain verification skill, also poteto) verification skills to be used in all work. the thesis of spark is that if verification skills are the highest leverage asset in the age of orchestration, then the default best move on the board is to invest in the pipelines that distill intent in almost-real time as agents run.
+the purpose of the sparks is simple and explicit: They are ammunition for spark-verification, which checks a PR or branch's changed files against the sparks.json answers that apply to those files' directories. the thesis of spark is that if verification against human intent is the highest leverage asset in the age of orchestration, then the default best move on the board is to invest in the pipelines that distill that intent in almost-real time as agents run.
 
 ## Cursor plugin
 
@@ -39,7 +39,7 @@ Discovery uses the default folders. The manifest does not set custom component p
 
 Cursor discovers plugin skills from `skills/` and rules from `rules/`.
 
-`sparks-discuss` interviews you, one persona at a time, and writes your answers verbatim into `sparks.json` with `sparks entry add`. `spark-verification` runs poteto's `create-verification-skill` or `maintain-verification-skill`, both bundled here, with those sparks as ammunition. Its headless mode reads every spark; its interactive mode runs `sparks-discuss` first and works from the sparks that session wrote.
+`sparks-discuss` interviews you, one persona at a time, and writes your answers verbatim into `sparks.json` with `sparks entry add`. `spark-verification` is read-only: for a PR or branch it lists the diff, loads every `sparks.json` that applies to each changed file's directory (ancestors apply globally by default; see below), and reports violations with the file and the quoted spark. It never edits code or opens PRs. poteto's `create-verification-skill` and `maintain-verification-skill` remain bundled for direct use; `spark-verification` no longer wraps them.
 
 ## How to use Spark
 
@@ -193,7 +193,7 @@ Every issue and every open pull request needs exactly one priority label: `low`,
 
 ## Credits
 
-- [Lauren Tan (@poteto)](https://github.com/poteto), who wrote the pstack skills in this plugin: `ketchup`, `how`, `why`, `bro`, `create-verification-skill`, and `maintain-verification-skill`. `spark-verification` is an adapter over the last two.
+- [Lauren Tan (@poteto)](https://github.com/poteto), who wrote the pstack skills in this plugin: `ketchup`, `how`, `why`, `bro`, `create-verification-skill`, and `maintain-verification-skill`. Those last two are bundled for direct use; `spark-verification` is a separate read-only skill that checks a PR or branch against `sparks.json`.
 - [Matt Pocock (@mattpocock)](https://github.com/mattpocock), whose `grilling` skill is the basis for the grilling core of `sparks-discuss`, whose `domain-modeling` skill is the basis for `sparks-domain`, and whose `to-spec` skill is the basis for `sparks-postcall`.
 
 ## License
