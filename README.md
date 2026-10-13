@@ -80,6 +80,16 @@ snapshot <captured_at> workspaces=<n> tabs=<n> panes=<n> agents=<n> db=<path>
 
 The database is current state, not a history log. A failed run leaves the previous file unchanged. Exit 1 reports a snapshot failure (including herdr missing or not running) with one stderr line; exit 2 reports a usage error.
 
+### `sparks herdr query`
+
+`bin/sparks herdr query [--db <path>] [--status <status>] [--workspace <id>] [--tab <id>] [--name <name>] [--raw] [summary|workspaces|tabs|panes|agents]` reads that database and prints a short tab-separated table. It does not call herdr and does not write the database. The default view is `summary`.
+
+The path uses the same precedence as `sparks herdr snapshot`. A missing database exits 1 with one stderr line and creates nothing.
+
+`summary` prints the snapshot time and stored counts, then agent status counts, then one line for each agent whose status is not `done`. The other views print that table only. Columns are the parsed list fields, not the stored fetch JSON. `--raw` prints each stored fetch object on its own line instead; it does not apply to `summary`.
+
+Filters are exact and combine. A filter that does not apply to the view is a usage error (exit 2). Zero matches still exit 0.
+
 ## Background
 
 The point of Spark is to improve context engineering in three ways that no existing paradigm achieves.

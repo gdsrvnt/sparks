@@ -4,7 +4,7 @@
 # dependencies = ["jsonschema>=4.18"]
 # ///
 
-"""Maintain SPARK records and snapshot the current herdr inventory in SQLite.
+"""Maintain SPARK records, and snapshot or query the current herdr inventory.
 
 ``sparks entry add`` adds or replaces one SPARK record by exact question.
 The record shape comes from ``spark.schema.json``. ``spark_id.py`` derives
@@ -775,9 +775,278 @@ def snapshot(db: str | None = None) -> str:
     return f"snapshot {captured_at} {counts} db={_show(path)}"
 
 
+QUERY_DESCRIPTION = """\
+Read the shared herdr snapshot and print a short table. Does not call herdr
+and does not write the database.
+
+Path: --db, else SPARKS_HERDR_DB, else
+$XDG_DATA_HOME/sparks/herdr-state.sqlite when XDG_DATA_HOME is non-empty,
+otherwise ~/.local/share/sparks/herdr-state.sqlite.
+
+Views (default summary):
+  summary     snapshot time, stored counts, status counts, agents not done
+  workspaces  id, number, status, tabs, panes, focus, active tab, label
+  tabs        id, workspace, number, status, panes, focus, label
+  panes       id, workspace, tab, status, kind, name, cwd, restore error
+  agents      status, name, kind, workspace, pane, cwd
+
+Columns are tab-separated, one row per line, with a header row. Whitespace
+inside a cell becomes one space. Null is empty. Booleans are 1 or 0.
+agent_status is printed as stored, not rolled up. --raw prints each stored
+fetch object on its own line instead of the table. It does not apply to summary.
+
+Filters are exact and combine. --status and --workspace apply to every view.
+--tab applies to summary, tabs, panes, and agents. --name applies to summary,
+panes, and agents. A filter that does not apply is a usage error.
+
+exit status: 0 table printed, including zero matches; 1 read failure; 2 usage error.
+"""
+
+# Known statuses stay in this order so a count line is stable when one is zero.
+QUERY_STATUSES = ("blocked", "idle", "working", "unknown", "done")
+QUERY_AGENT_HEADER = ("status", "name", "kind", "ws", "pane", "cwd")
+QUERY_AGENT_ORDER = (
+    "CASE agent_status WHEN 'blocked' THEN 0 WHEN 'idle' THEN 1 WHEN 'working' THEN 2 "
+    "WHEN 'unknown' THEN 3 WHEN 'done' THEN 4 ELSE 5 END, agent_status, name"
+)
+QUERY_FILTERS = {
+    "summary": {"--status", "--workspace", "--tab", "--name"},
+    "workspaces": {"--status", "--workspace"},
+    "tabs": {"--status", "--workspace", "--tab"},
+    "panes": {"--status", "--workspace", "--tab", "--name"},
+    "agents": {"--status", "--workspace", "--tab", "--name"},
+}
+
+
+def _query_cell(value: object) -> str:
+    """One TSV cell: null is empty, and control characters cannot break the row."""
+    if value is None:
+        return ""
+    return " ".join(str(value).split())
+
+
+def _query_status_label(value: object) -> str:
+    if value is None:
+        return "null"
+    return _query_cell(value) or "empty"
+
+
+def _query_status_field(label: str, count: int) -> str:
+    if label and all(ch.isalnum() or ch in "-_." for ch in label):
+        return f"{label}={count}"
+    return f"{json.dumps(label, ensure_ascii=False)}={count}"
+
+
+def _query_usage(view: str, status: str | None, workspace: str | None, tab: str | None,
+                 name: str | None, raw: bool) -> None:
+    if raw and view == "summary":
+        raise SnapshotError("--raw does not apply to summary", 2)
+    allowed = QUERY_FILTERS[view]
+    for flag, value in (("--status", status), ("--workspace", workspace), ("--tab", tab), ("--name", name)):
+        if value is not None and flag not in allowed:
+            raise SnapshotError(f"{flag} does not apply to {view}", 2)
+
+
+def _query_where(columns: dict[str, str], status: str | None, workspace: str | None,
+                 tab: str | None, name: str | None) -> tuple[str, list[str]]:
+    clauses = []
+    params: list[str] = []
+    for key, value in (("status", status), ("workspace", workspace), ("tab", tab), ("name", name)):
+        if value is None:
+            continue
+        clauses.append(f"{columns[key]} = ?")
+        params.append(value)
+    if not clauses:
+        return "", params
+    return " WHERE " + " AND ".join(clauses), params
+
+
+def _open_query(path: str) -> sqlite3.Connection:
+    """Open an existing snapshot read-only. Never creates a file, parent, or sidecar."""
+    try:
+        target = Path(path)
+        if target.is_symlink() and not target.exists():
+            raise SnapshotError(f"{_show(path)}: not a regular file")
+        if not target.exists():
+            raise SnapshotError(f"{_show(path)}: no snapshot")
+        if not target.is_file():
+            raise SnapshotError(f"{_show(path)}: not a regular file")
+        connection = sqlite3.connect(
+            target.absolute().as_uri() + "?mode=ro", uri=True, timeout=5, isolation_level=None,
+        )
+    except SnapshotError:
+        raise
+    except (sqlite3.Error, OSError, ValueError) as exc:
+        reason = _why(exc) if isinstance(exc, OSError) else str(exc)
+        raise SnapshotError(f"{_show(path)}: {_snapshot_reason(reason)}") from exc
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA busy_timeout=5000")
+        connection.execute("PRAGMA query_only=ON")
+        connection.execute("BEGIN")
+        return connection
+    except (sqlite3.Error, OSError, ValueError) as exc:
+        with contextlib.suppress(sqlite3.Error, OSError):
+            connection.close()
+        reason = _why(exc) if isinstance(exc, OSError) else str(exc)
+        raise SnapshotError(f"{_show(path)}: {_snapshot_reason(reason)}") from exc
+
+
+def _query_meta(connection: sqlite3.Connection, path: str) -> sqlite3.Row:
+    try:
+        if not _check_snapshot_version(connection):
+            raise SnapshotError(f"{_show(path)}: no snapshot")
+        meta = connection.execute(
+            "SELECT captured_at, workspace_count, tab_count, pane_count, agent_count "
+            "FROM snapshot WHERE id = 1"
+        ).fetchone()
+        if meta is None:
+            raise SnapshotError(f"{_show(path)}: no snapshot")
+        counts = [
+            connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("workspaces", "tabs", "panes", "agents")
+        ]
+    except SnapshotError:
+        raise
+    except ValueError as exc:
+        raise SnapshotError(f"{_show(path)}: {_snapshot_reason(exc)}") from exc
+    except sqlite3.Error as exc:
+        raise SnapshotError(f"{_show(path)}: {_snapshot_reason(exc)}") from exc
+    stored = [meta["workspace_count"], meta["tab_count"], meta["pane_count"], meta["agent_count"]]
+    if counts != stored:
+        raise SnapshotError(f"{_show(path)}: snapshot counts do not match inventory")
+    return meta
+
+
+def _query_header(meta: sqlite3.Row, path: str, view: str, shown: int, total: int, filtered: bool) -> str:
+    captured = _query_cell(meta["captured_at"])
+    shown_db = _show(path)
+    if view == "summary":
+        matched = f" matched={shown}" if filtered else ""
+        return (
+            f"snapshot {captured} workspaces={meta['workspace_count']} tabs={meta['tab_count']} "
+            f"panes={meta['pane_count']} agents={meta['agent_count']}{matched} db={shown_db}"
+        )
+    extra = "" if shown == total else f" of={total}"
+    return f"snapshot {captured} {view}={shown}{extra} db={shown_db}"
+
+
+def _query_tsv(header: tuple[str, ...], rows: list[tuple]) -> str:
+    lines = ["\t".join(header)]
+    for row in rows:
+        lines.append("\t".join(_query_cell(value) for value in row))
+    return "\n".join(lines)
+
+
+def _query_raw_line(value: object) -> str:
+    text = "" if value is None else str(value)
+    if "\n" in text or "\r" in text:
+        return _query_cell(text)
+    return text
+
+
+def _query_body(connection: sqlite3.Connection, view: str, status: str | None, workspace: str | None,
+                tab: str | None, name: str | None, raw: bool) -> tuple[str, int, int]:
+    """Return the body, the matching row count, and the unfiltered table count."""
+    if view in ("summary", "agents"):
+        where, params = _query_where(
+            {"status": "agent_status", "workspace": "workspace_id", "tab": "tab_id", "name": "name"},
+            status, workspace, tab, name,
+        )
+        total = connection.execute("SELECT COUNT(*) FROM agents").fetchone()[0]
+        if view == "agents" and raw:
+            rows = connection.execute(
+                f"SELECT raw_json FROM agents{where} ORDER BY {QUERY_AGENT_ORDER}", params,
+            ).fetchall()
+            return "\n".join(_query_raw_line(row["raw_json"]) for row in rows), len(rows), total
+        rows = connection.execute(
+            "SELECT agent_status, name, agent, workspace_id, pane_id, cwd "
+            f"FROM agents{where} ORDER BY {QUERY_AGENT_ORDER}",
+            params,
+        ).fetchall()
+        filtered = any(value is not None for value in (status, workspace, tab, name))
+        visible = rows if view == "agents" or filtered else [
+            row for row in rows if row["agent_status"] != "done"
+        ]
+        table = _query_tsv(QUERY_AGENT_HEADER, [
+            (row["agent_status"], row["name"], row["agent"], row["workspace_id"], row["pane_id"], row["cwd"])
+            for row in visible
+        ])
+        if view == "agents":
+            return table, len(rows), total
+        counts: dict[str, int] = {}
+        for row in rows:
+            label = _query_status_label(row["agent_status"])
+            counts[label] = counts.get(label, 0) + 1
+        fields = [_query_status_field(label, counts.pop(label, 0)) for label in QUERY_STATUSES]
+        for label in sorted(counts):
+            fields.append(_query_status_field(label, counts[label]))
+        return "agents " + " ".join(fields) + "\n" + table, len(rows), total
+
+    specs = {
+        "workspaces": (
+            "workspaces", "raw_json",
+            "workspace_id, number, agent_status, tab_count, pane_count, focused, active_tab_id, label",
+            "number, workspace_id",
+            {"status": "agent_status", "workspace": "workspace_id"},
+            ("id", "n", "status", "tabs", "panes", "focus", "active", "label"),
+        ),
+        "tabs": (
+            "tabs", "raw_json",
+            "tab_id, workspace_id, number, agent_status, pane_count, focused, label",
+            "workspace_id, number, tab_id",
+            {"status": "agent_status", "workspace": "workspace_id", "tab": "tab_id"},
+            ("id", "ws", "n", "status", "panes", "focus", "label"),
+        ),
+        "panes": (
+            "panes p LEFT JOIN agents a ON a.pane_id = p.pane_id", "p.raw_json",
+            "p.pane_id, p.workspace_id, p.tab_id, p.agent_status, p.agent, a.name, p.cwd, p.restore_error",
+            "p.workspace_id, p.tab_id, p.pane_id",
+            {"status": "p.agent_status", "workspace": "p.workspace_id", "tab": "p.tab_id", "name": "a.name"},
+            ("id", "ws", "tab", "status", "kind", "name", "cwd", "restore"),
+        ),
+    }
+    source, raw_column, selected, order, columns, header = specs[view]
+    where, params = _query_where(columns, status, workspace, tab, name)
+    count_source = "panes" if view == "panes" else source
+    total = connection.execute(f"SELECT COUNT(*) FROM {count_source}").fetchone()[0]
+    if raw:
+        rows = connection.execute(
+            f"SELECT {raw_column} AS raw_json FROM {source}{where} ORDER BY {order}", params,
+        ).fetchall()
+        return "\n".join(_query_raw_line(row["raw_json"]) for row in rows), len(rows), total
+    rows = connection.execute(f"SELECT {selected} FROM {source}{where} ORDER BY {order}", params).fetchall()
+    return _query_tsv(header, [tuple(row) for row in rows]), len(rows), total
+
+
+def query(db: str | None = None, view: str = "summary", status: str | None = None,
+          workspace: str | None = None, tab: str | None = None, name: str | None = None,
+          raw: bool = False) -> str:
+    """Read the snapshot and render a short table. Does not call herdr or write."""
+    _query_usage(view, status, workspace, tab, name, raw)
+    path = _snapshot_path(db)
+    connection = _open_query(path)
+    try:
+        meta = _query_meta(connection, path)
+        body, shown, total = _query_body(connection, view, status, workspace, tab, name, raw)
+        header = _query_header(
+            meta, path, view, shown, total,
+            any(value is not None for value in (status, workspace, tab, name)),
+        )
+    except SnapshotError:
+        raise
+    except (sqlite3.Error, OSError, ValueError) as exc:
+        reason = _why(exc) if isinstance(exc, OSError) else str(exc)
+        raise SnapshotError(f"{_show(path)}: {_snapshot_reason(reason)}") from exc
+    finally:
+        with contextlib.suppress(sqlite3.Error, OSError):
+            connection.close()
+    return header if not body else f"{header}\n{body}"
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="sparks", description="Keep SPARK records and snapshot current herdr state."
+        prog="sparks", description="Keep SPARK records and read or snapshot current herdr state."
     )
     commands = parser.add_subparsers(dest="command", required=True, metavar="<command>")
     entry = commands.add_parser(
@@ -816,6 +1085,24 @@ def _parser() -> argparse.ArgumentParser:
     snapshot_parser.add_argument(
         "--db", metavar="<path>", help="shared SQLite database path (see precedence below)",
     )
+    query_parser = herdr_actions.add_parser(
+        "query", help="print a short read-only table",
+        description=QUERY_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    query_parser.add_argument(
+        "--db", metavar="<path>", help="shared SQLite database path (same precedence as snapshot)",
+    )
+    query_parser.add_argument("--status", metavar="<status>", help="exact agent_status")
+    query_parser.add_argument("--workspace", metavar="<id>", help="exact workspace_id")
+    query_parser.add_argument("--tab", metavar="<id>", help="exact tab_id")
+    query_parser.add_argument("--name", metavar="<name>", help="exact agent name")
+    query_parser.add_argument(
+        "--raw", action="store_true", help="print stored fetch objects instead of the table",
+    )
+    query_parser.add_argument(
+        "view", nargs="?", default="summary", choices=tuple(QUERY_FILTERS),
+        help="table to print (default: summary)",
+    )
     return parser
 
 
@@ -823,7 +1110,13 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "herdr":
         try:
-            output = snapshot(args.db)
+            if args.action == "snapshot":
+                output = snapshot(args.db)
+            else:
+                output = query(
+                    args.db, args.view, status=args.status, workspace=args.workspace,
+                    tab=args.tab, name=args.name, raw=args.raw,
+                )
         except SnapshotError as exc:
             _say(sys.stderr, f"sparks: {exc}\n")
             return exc.code

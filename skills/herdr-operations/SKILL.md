@@ -34,13 +34,15 @@ Agents that share a machine share one local SQLite database of herdr state: ever
 
 The database path is `--db`, or `SPARKS_HERDR_DB`, or otherwise `$XDG_DATA_HOME/sparks/herdr-state.sqlite` (`~/.local/share/sparks/herdr-state.sqlite` when `XDG_DATA_HOME` is unset). On a shared machine, leave the path at that default, or set `SPARKS_HERDR_DB` to the one path the user named. Do not invent a second file. Do not commit the database.
 
+Read it with `sparks herdr query`. That command does not call herdr and does not write the database. The default view prints the snapshot time, stored counts, status counts, and agents whose status is not `done`. `sparks herdr query agents` lists every agent. Columns are the parsed list fields, tab-separated. Pass `--raw` only when the stored fetch object is required. Same path rules as snapshot.
+
 Refresh it:
 
 - when you look first, before you create, close, split, start, rename, or prompt
 - after each of those herdr changes
 - immediately before you start `scripts/herdr-heartbeat.sh`, and again when it wakes you, before you act on the report
 
-A snapshot from this turn is fresh enough to tell the user what is running. It is not fresh enough, later, to choose an id for a mutation. Read ids from a herdr JSON response in the turn you use them. Never guess an id from an older database row. Repeat herdr's `agent_status` as given. Workspace and tab statuses are herdr's fields, not a rollup you recompute.
+A snapshot from this turn is fresh enough to tell the user what is running. `sparks herdr query` prints that snapshot; it is not a live herdr response. It is not fresh enough, later, to choose an id for a mutation. Read ids from a herdr JSON response in the turn you use them. Never guess an id from an older database row. Repeat herdr's `agent_status` as given. Workspace and tab statuses are herdr's fields, not a rollup you recompute.
 
 If the snapshot exits nonzero, say the one-line error and do not claim the database was updated. If herdr is missing or not running, follow "If herdr isn't running" below. A failed snapshot does not by itself send the work to another machine.
 
