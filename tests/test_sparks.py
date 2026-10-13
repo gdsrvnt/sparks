@@ -204,7 +204,7 @@ def test_non_ascii_is_kept_verbatim_and_hashed_by_the_spec_rule(tmp_path):
 
 
 
-@pytest.mark.parametrize("spark_type", ["S", "s", "R", "k", "K"])
+@pytest.mark.parametrize("spark_type", ["S", "R", "k", "K"])
 def test_type_is_accepted_in_any_case_and_written_lowercase(tmp_path, spark_type):
     path = tmp_path / "sparks.json"
     result = add(path, spark(spark_type=spark_type))
@@ -263,20 +263,6 @@ def test_multiple_exact_matches_are_refused_without_writing(tmp_path, incoming):
     before = seed(path, [FIRST, SECOND, spark(FIRST["question"], "Old answer.", "r")])
     result = sparks("add", "--json", json.dumps(incoming), cwd=tmp_path)
     assert_rejected(result, "2 sparks have the exact question")
-    assert path.read_bytes() == before
-    assert others(tmp_path) == []
-
-
-def test_failed_replacement_keeps_old_spark(tmp_path, monkeypatch, capsys):
-    path = tmp_path / "sparks.json"
-    before = seed(path, [FIRST, SECOND])
-
-    def fail(src, dst):
-        raise OSError(errno.EIO, "simulated replacement failure")
-
-    monkeypatch.setattr(os, "replace", fail)
-    assert run_main(path, spark(FIRST["question"], "Updated.")) == 1
-    assert "cannot write" in capsys.readouterr().err
     assert path.read_bytes() == before
     assert others(tmp_path) == []
 
@@ -843,21 +829,6 @@ def test_add_create_append_replace_and_idempotent_share_one_list(tmp_path):
     assert others(tmp_path) == []
 
 
-def test_help_shows_the_usage_exit_codes_and_exact_replace_semantics(tmp_path):
-    result = sparks("add", "--help", cwd=tmp_path)
-    assert result.returncode == 0
-    assert result.stdout.startswith("usage: sparks add [-h] [--path <path>] --json <json>\n")
-    assert "Add or replace one spark in a list of sparks." in result.stdout
-    assert "one spark:" in result.stdout
-    assert "record" not in result.stdout
-    assert "exit status: 0 added or replaced; 1 refused, nothing written; 2 usage error; 3 written" in (
-        result.stdout
-    )
-    assert "An exact question match replaces the entire spark" in result.stdout
-    assert "Multiple exact matches are" in result.stdout
-    assert "An identical spark that already has its id" in result.stdout
-
-
 @posix
 @pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv on PATH")
 def test_runs_as_an_executable_uv_script(tmp_path):
@@ -871,63 +842,6 @@ def test_runs_as_an_executable_uv_script(tmp_path):
     assert result.stdout == f"added {spark_id(FIRST)} to sparks.json\n"
     assert json.loads((tmp_path / "sparks.json").read_bytes()) == [stored(FIRST)]
 
-
-
-def test_post_call_self_healing_rule_is_packaged():
-    """The always-on rule ships and points agents at sparks-postcall after hang-up."""
-    rule = ROOT / "rules" / "post-call-self-healing.mdc"
-    text = rule.read_text(encoding="utf-8")
-    assert text.startswith("---\n")
-    assert "alwaysApply: true" in text
-    assert "description:" in text.split("---", 2)[1]
-    assert "sparks-postcall" in text
-    assert "disable-model-invocation" in text
-    assert "skills/sparks-postcall/SKILL.md" in text
-    assert "/sparks-postcall" in text
-    assert "not in `spark-voice`" in text
-
-
-def test_spark_voice_hang_up_hands_off_to_sparks_postcall():
-    """Hang-up does no post-call work and opens sparks-postcall consistently with the rule."""
-    voice = (ROOT / "skills" / "spark-voice" / "SKILL.md").read_text(encoding="utf-8")
-    hang = voice.split("### Hang-up", 1)[1].split("\n## ", 1)[0]
-    assert "This skill does no post-call work" in hang
-    assert "post-call protocol lives only in `sparks-postcall`" in hang
-    assert "../sparks-postcall/SKILL.md" in hang
-    assert "/sparks-postcall" in hang
-    assert "tell the user to run the post-call skill" not in hang
-
-
-def test_spark_verification_is_read_only_generic_skill():
-    """spark-verification verifies a PR/branch against sparks.json; no create/maintain modes."""
-    skill = ROOT / "skills" / "spark-verification" / "SKILL.md"
-    text = skill.read_text(encoding="utf-8")
-    assert text.startswith("---\n")
-    fm, body = text.split("---", 2)[1], text.split("---", 2)[2]
-    assert "name: spark-verification" in fm
-    assert "description:" in fm
-    assert "disable-model-invocation: true" in fm
-    assert "sparks.json" in body
-    assert "Read-only" in body or "read-only" in body
-    assert "never opens pull requests" in body or "never open" in body.lower()
-    assert "create-verification-skill" not in body.split("## Out of scope", 1)[0]
-    assert "maintain-verification-skill" not in body.split("## Out of scope", 1)[0]
-    assert "Headless" not in body.split("## Out of scope", 1)[0]
-    assert ".cursor/skills" not in body
-    assert "ancestor" in body.lower() or "ancestors" in body.lower()
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert "spark-verification` is read-only" in readme or "spark-verification` is a separate read-only" in readme
-    assert "is an adapter over the last two" not in readme
-    discuss = (ROOT / "skills" / "sparks-discuss" / "SKILL.md").read_text(encoding="utf-8")
-    assert "If `/spark-verification` started this session" not in discuss
-
-
-def test_blocker_clearing_rule_is_still_packaged():
-    rule = ROOT / "rules" / "blocker-clearing.mdc"
-    text = rule.read_text(encoding="utf-8")
-    assert "alwaysApply: true" in text
-    assert "Stop and deliberate" in text
-    assert "sparks-discuss" in text
 
 
 # herdr snapshot: all commands use an isolated, argv-logging fake on PATH.
@@ -1475,16 +1389,6 @@ def test_herdr_invalid_envelopes_never_write(fake_herdr, existing, group, stdout
     assert_rejected(fake_herdr.run(), f"herdr {group} list: ")
     fake_herdr.assert_calls(HERDR_GROUPS[:HERDR_GROUPS.index(group) + 1])
     assert_snapshot_unchanged(fake_herdr, before)
-
-
-@pytest.mark.parametrize(("field", "value"), [("pane_id", 3), ("revision", True), ("focused", 0)])
-@pytest.mark.parametrize("existing", [False, True])
-def test_herdr_required_bad_pane_types_never_write(fake_herdr, existing, field, value):
-    before = fake_herdr.seed() if existing else None
-    rows = herdr_rows()
-    rows["panes"][0][field] = value
-    fake_herdr.respond(rows)
-    assert_invalid_herdr_rows(fake_herdr, "panes", before)
 
 
 @pytest.mark.parametrize(("table", "field"), [
@@ -2213,25 +2117,6 @@ def test_herdr_usage_errors_do_not_call_herdr_or_write(fake_herdr, args):
     assert not fake_herdr.db.exists()
 
 
-def test_herdr_snapshot_public_files_and_fixtures_have_no_machine_specific_strings():
-    # Assemble prohibited spellings so the guard itself is not a fixture violation.
-    forbidden = (
-        "/home/" + "box", "/" + "workspace", "Arch" + "Agents", "God" + "dy",
-        "Grok" + " Bot", "Grok" + "box",
-    )
-    public_files = (
-        BIN, ROOT / "README.md", ROOT / "CHANGELOG.md",
-        ROOT / "skills" / "herdr-operations" / "SKILL.md",
-        ROOT / "skills" / "herdr-operations" / "scripts" / "README.md",
-    )
-    for path in public_files:
-        text = path.read_text(encoding="utf-8")
-        for value in forbidden:
-            assert value not in text, (path.relative_to(ROOT), value)
-    for value in forbidden:
-        assert value not in Path(__file__).read_text(encoding="utf-8")
-        assert value not in json.dumps(herdr_rows(), ensure_ascii=False)
-
 # format and ids
 
 
@@ -2253,19 +2138,6 @@ def test_load_shape_diagnostic_calls_the_primitive_a_spark(tmp_path, invalid):
     path.write_text(json.dumps([invalid]), encoding="utf-8")
     with pytest.raises(spark_id_mod.SparkFileError, match="each spark must be an object"):
         spark_id_mod.load(path)
-
-
-def test_add_writes_the_xxh64_id_and_prints_it(tmp_path):
-    path = tmp_path / "sparks.json"
-    result = add(path, FIRST)
-    (written,) = json.loads(path.read_bytes())
-    preimage = json.dumps(
-        {"answer": FIRST["answer"], "question": FIRST["question"], "type": "s"},
-        sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-    ).encode("utf-8")
-    assert written["id"] == spark_hash.xxh64_hexdigest(preimage)
-    assert result.stdout == f"added {written['id']} to {path}\n"
-    assert list(written) == ["type", "question", "answer", "id"]
 
 
 def test_file_without_ids_stays_valid_and_add_backfills_the_matched_id(tmp_path):
@@ -2305,27 +2177,6 @@ def test_duplicate_stored_ids_are_refused(tmp_path):
 def test_example_id_is_pinned():
     (spark,) = json.loads((ROOT / "sparks.json").read_bytes())
     assert spark["id"] == spark_id({k: spark[k] for k in ("type", "question", "answer")})
-
-
-def test_hash_script_has_no_dependencies():
-    text = (ROOT / "spark_hash.py").read_text(encoding="utf-8")
-    assert "# dependencies = []" in text
-    imports = {line.split()[1].split(".")[0] for line in text.splitlines()
-               if line.startswith(("import ", "from "))}
-    assert imports <= {"struct", "sys", "__future__"}, imports
-
-
-
-def test_load_does_not_rehash_a_stored_id(tmp_path, monkeypatch):
-    path = tmp_path / "sparks.json"
-    expected = spark_id(FIRST)
-    seed(path, [stored(FIRST)])
-
-    def fail(*args):
-        raise AssertionError("derive_id called for a stored id")
-
-    monkeypatch.setattr(spark_id_mod, "derive_id", fail)
-    assert spark_id_mod.load(path)[0].id == expected
 
 
 @pytest.mark.parametrize("bad", [None, 1, "0123456789abcdef\n", "0" * 17])

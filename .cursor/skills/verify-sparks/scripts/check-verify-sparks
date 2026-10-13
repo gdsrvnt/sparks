@@ -1,0 +1,734 @@
+#!/usr/bin/env python3
+"""Decidable checks for the sparks repository.
+
+Semantic contradiction across the source is the precedent. This script does
+not grade prose. It compares structural facts (schema, spark_id.TYPES, the
+example record, published XXH64 vectors) and drives two isolated CLI paths.
+A script pass is not a verification pass until the agent writes prose.md.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.machinery
+import importlib.util
+import json
+import os
+import re
+import shutil
+import sqlite3
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+
+HELPER = Path(__file__).resolve()
+HELPER_REPO = HELPER.parents[4]
+SCHEMA = frozenset({"s", "p", "a", "r", "k"})
+ID_RE = re.compile(r"^[0-9a-f]{16}$")
+PRIME32 = 2654435761
+PRIME64 = 11400714785074694797
+MASK64 = 0xFFFFFFFFFFFFFFFF
+OFFICIAL = (
+    (0, 0, "ef46db3751d8e999"),
+    (0, PRIME32, "ac75fda2929b17ef"),
+    (1, 0, "e934a84adb052768"),
+    (4, 0, "9136a0dca57457ee"),
+    (14, 0, "8282dcc4994e35c8"),
+    (14, PRIME32, "c3bd6bf63deb6df0"),
+    (222, 0, "b641ae8cb691c174"),
+)
+PREFIX16 = bytes.fromhex("0052929bb732a3242d00af950eecb893")
+VENDORED = frozenset({
+    "bro",
+    "create-verification-skill",
+    "how",
+    "ketchup",
+    "maintain-verification-skill",
+    "show-me",
+    "why",
+})
+ARTIFACTS = (
+    "report.txt",
+    "report.json",
+    "index.txt",
+    "prose.md",
+    "entry-add.txt",
+    "herdr-snapshot.txt",
+    "scratch.txt",
+)
+MARKER = ".verify-sparks-scratch"
+
+
+class Findings:
+    def __init__(self) -> None:
+        self.rows: list[tuple[str, str, str]] = []
+
+    def add(self, status: str, check: str, detail: str) -> None:
+        self.rows.append((status, check, detail))
+
+    @property
+    def failed(self) -> bool:
+        return any(status == "FAIL" for status, _, _ in self.rows)
+
+
+def repo_root(argument: str | None) -> Path:
+    root = Path(argument).resolve() if argument else HELPER_REPO
+    if not (root / "spark.schema.json").is_file() or not (root / "bin" / "sparks").is_file():
+        raise SystemExit(f"check-verify-sparks: {root}: not a sparks checkout")
+    return root
+
+
+def contained(path: Path, root: Path) -> bool:
+    resolved = path.resolve()
+    return resolved == root or root in resolved.parents
+
+
+def outside_all(path: Path, roots: list[Path]) -> bool:
+    return not any(contained(path, root) for root in roots)
+
+
+def scratch_parent(roots: list[Path]) -> Path:
+    candidates = (
+        Path("/tmp/verify-sparks-scratch"),
+        Path.home() / ".local" / "state" / "verify-sparks-scratch",
+    )
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if outside_all(resolved, roots):
+            resolved.mkdir(parents=True, exist_ok=True)
+            (resolved / "tmp").mkdir(exist_ok=True)
+            (resolved / "uv-cache").mkdir(exist_ok=True)
+            (resolved / "pyc").mkdir(exist_ok=True)
+            return resolved
+    raise SystemExit("check-verify-sparks: no scratch parent outside the checkout")
+
+
+def tool_env(roots: list[Path]) -> dict[str, str]:
+    parent = scratch_parent(roots)
+    env = os.environ.copy()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["PYTHONPYCACHEPREFIX"] = str(parent / "pyc")
+    env["UV_CACHE_DIR"] = str(parent / "uv-cache")
+    env["TMPDIR"] = str(parent / "tmp")
+    env["TEMP"] = str(parent / "tmp")
+    env["TMP"] = str(parent / "tmp")
+    env["GIT_OPTIONAL_LOCKS"] = "0"
+    return env
+
+
+def git(root: Path, roots: list[Path], *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "--no-optional-locks", "-C", str(root), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=tool_env(roots),
+    )
+
+
+def head(root: Path, roots: list[Path]) -> str:
+    result = git(root, roots, "rev-parse", "--short", "HEAD")
+    return result.stdout.strip() or "unknown"
+
+
+def dirty(root: Path, roots: list[Path]) -> bool:
+    result = git(root, roots, "status", "--porcelain")
+    return bool(result.stdout.strip())
+
+
+def load_modules(root: Path):
+    """Load spark_hash and spark_id from root, not from this helper's checkout."""
+    sys.dont_write_bytecode = True
+    for name in ("spark_hash", "spark_id"):
+        sys.modules.pop(name, None)
+
+    def load(name: str, filename: str):
+        loader = importlib.machinery.SourceFileLoader(name, str(root / filename))
+        spec = importlib.util.spec_from_loader(name, loader)
+        if spec is None:
+            raise SystemExit(f"check-verify-sparks: cannot load {root / filename}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        loader.exec_module(module)
+        return module
+
+    spark_hash = load("spark_hash", "spark_hash.py")
+    spark_id = load("spark_id", "spark_id.py")
+    loaded = Path(spark_id.__file__).resolve().parent
+    if loaded != root:
+        raise SystemExit(f"check-verify-sparks: loaded spark_id from {loaded}, not {root}")
+    return spark_hash, spark_id
+
+
+def official_buffer(length: int) -> bytes:
+    buffer = bytearray(length)
+    byte_gen = PRIME32
+    for index in range(length):
+        buffer[index] = (byte_gen >> 56) & 0xFF
+        byte_gen = (byte_gen * PRIME64) & MASK64
+    return bytes(buffer)
+
+
+def rel(root: Path, path: Path) -> str:
+    return path.resolve().relative_to(root).as_posix()
+
+
+def index_paths(root: Path) -> tuple[list[str], list[str], list[str]]:
+    """Normative prose, implementation, and non-normative evidence.
+
+    Vendored skill bodies are excluded. Tests are evidence, not claims.
+    """
+    normative = [
+        "README.md",
+        "CONTRIBUTING.md",
+        "CHANGELOG.md",
+        "THIRD_PARTY_NOTICES.md",
+        ".cursor-plugin/plugin.json",
+    ]
+    for path in sorted((root / "docs").glob("*.md")):
+        normative.append(rel(root, path))
+    for path in sorted((root / "rules").glob("*.mdc")):
+        normative.append(rel(root, path))
+    for skill in sorted(path for path in (root / "skills").iterdir() if path.is_dir()):
+        if skill.name in VENDORED or not (skill / "SKILL.md").is_file():
+            continue
+        for path in sorted(skill.rglob("*")):
+            if path.is_file() and path.suffix in {".md", ".mdc", ".py", ".sh"}:
+                normative.append(rel(root, path))
+    verify = root / ".cursor" / "skills" / "verify-sparks"
+    if verify.is_dir():
+        for path in sorted(verify.rglob("*")):
+            if path.is_file() and path.suffix == ".md":
+                normative.append(rel(root, path))
+    implementation = [
+        "spark.schema.json",
+        "spark.json",
+        "spark_id.py",
+        "spark_hash.py",
+        "bin/sparks",
+        "bin/spark",
+    ]
+    workflows = root / ".github" / "workflows"
+    if workflows.is_dir():
+        implementation.extend(rel(root, path) for path in sorted(workflows.glob("*.yml")))
+    evidence = []
+    tests = root / "tests"
+    if tests.is_dir():
+        evidence.extend(rel(root, path) for path in sorted(tests.glob("*.py")))
+    return normative, implementation, evidence
+
+
+def write_index(evidence: Path, root: Path) -> None:
+    normative, implementation, extra = index_paths(root)
+    lines = [
+        "# normative",
+        *normative,
+        "# implementation",
+        *implementation,
+        "# evidence-not-normative",
+        *extra,
+        "",
+    ]
+    (evidence / "index.txt").write_text("\n".join(lines), encoding="utf-8")
+
+
+def check_structure(root: Path, spark_id, findings: Findings) -> None:
+    schema = json.loads((root / "spark.schema.json").read_text(encoding="utf-8"))
+    spark = schema["$defs"]["spark"]
+    enum = frozenset(spark["properties"]["type"]["enum"])
+    required = frozenset(spark["required"])
+    pattern = spark["properties"]["id"]["pattern"]
+    if enum != SCHEMA:
+        findings.add("FAIL", "types", f"schema enum set is {sorted(enum)}, expected {sorted(SCHEMA)}")
+    elif frozenset(spark_id.TYPES) != enum:
+        findings.add("FAIL", "types", f"spark_id.TYPES set {sorted(spark_id.TYPES)} != schema {sorted(enum)}")
+    else:
+        findings.add("PASS", "types", "schema enum set equals spark_id.TYPES (s, p, a, r, k)")
+    if required != {"type", "question", "answer"}:
+        findings.add("FAIL", "id", f"schema required set is {sorted(required)}; id must stay optional")
+    elif pattern != "^[0-9a-f]{16}$":
+        findings.add("FAIL", "id", f"schema id pattern is {pattern}")
+    else:
+        findings.add("PASS", "id", "schema id is optional and ^[0-9a-f]{16}$")
+
+
+def check_skills(root: Path, findings: Findings) -> None:
+    for skill in sorted(path for path in (root / "skills").iterdir() if path.is_dir()):
+        text_path = skill / "SKILL.md"
+        if not text_path.is_file():
+            continue
+        text = text_path.read_text(encoding="utf-8")
+        if not text.startswith("---\n"):
+            findings.add("FAIL", "skills", f"{skill.name}: SKILL.md has no frontmatter")
+            continue
+        frontmatter = text.split("---", 2)[1]
+        match = re.search(r"^name:\s*['\"]?([A-Za-z0-9-]+)['\"]?\s*$", frontmatter, re.M)
+        if not match:
+            findings.add("FAIL", "skills", f"{skill.name}: frontmatter has no name")
+        elif match.group(1) != skill.name:
+            findings.add("FAIL", "skills", f"{skill.name}: frontmatter name is {match.group(1)}")
+    if not any(status == "FAIL" and check == "skills" for status, check, _ in findings.rows):
+        findings.add("PASS", "skills", "every skills/*/SKILL.md frontmatter name matches its directory")
+
+
+def check_example(root: Path, roots: list[Path], spark_id, findings: Findings, evidence: Path) -> None:
+    example = json.loads((root / "spark.json").read_text(encoding="utf-8"))
+    if not isinstance(example, list) or len(example) != 1 or not isinstance(example[0], dict):
+        findings.add("FAIL", "example", "spark.json is not a one-record array")
+        return
+    record = example[0]
+    if set(record) != {"type", "question", "answer", "id"}:
+        findings.add("FAIL", "example", f"spark.json keys are {sorted(record)}")
+        return
+    derived = spark_id.derive_id(record["question"], record["answer"], record["type"])
+    if record["id"] != derived or not ID_RE.fullmatch(record["id"]):
+        findings.add("FAIL", "example", f"stored id {record['id']} != derive_id {derived}")
+        return
+    completed = run_cmd(
+        ["uv", "run", "spark_id.py", "spark.json"],
+        cwd=root,
+        roots=roots,
+    )
+    save_transcript(evidence, "spark-id.txt", completed)
+    if completed.returncode != 0:
+        findings.add("FAIL", "example", f"uv run spark_id.py spark.json: {completed.stderr.strip()}")
+        return
+    findings.add("PASS", "example", f"spark.json id {record['id']} matches derive_id; spark_id.py exited 0")
+
+
+def check_vectors(spark_hash, findings: Findings) -> None:
+    if official_buffer(16) != PREFIX16:
+        findings.add("FAIL", "vectors", "official buffer prefix drifted from the xxHash sanity check")
+        return
+    for length, seed, expected in OFFICIAL:
+        digest = spark_hash.xxh64_hexdigest(official_buffer(length), seed)
+        if digest != expected:
+            findings.add("FAIL", "vectors", f"XXH64 len={length} seed={seed}: {digest} != {expected}")
+            return
+    findings.add("PASS", "vectors", f"{len(OFFICIAL)} official XXH64 vectors match this checkout's spark_hash.py")
+
+
+def run_cmd(argv: list[str], *, cwd: Path, roots: list[Path]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        argv,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=tool_env(roots),
+    )
+
+
+def save_transcript(evidence: Path, name: str, completed: subprocess.CompletedProcess[str], *, extra: str = "") -> None:
+    target = evidence / name
+    if target.is_symlink():
+        raise SystemExit(f"check-verify-sparks: refusing to write through symlink {target}")
+    body = (
+        f"argv: {completed.args}\n"
+        f"cwd: {completed.cwd if getattr(completed, 'cwd', None) else ''}\n"
+        f"exit: {completed.returncode}\n"
+        f"--- stdout ---\n{completed.stdout}\n"
+        f"--- stderr ---\n{completed.stderr}\n"
+        f"{extra}"
+    )
+    target.write_text(body, encoding="utf-8")
+
+
+def make_scratch(evidence: Path, roots: list[Path], prefix: str) -> Path:
+    parent = scratch_parent(roots)
+    scratch = Path(subprocess.check_output(
+        ["mktemp", "-d", str(parent / f"{prefix}.XXXXXX")],
+        text=True,
+        env=tool_env(roots),
+    ).strip())
+    if not outside_all(scratch, roots) or scratch_parent(roots) not in scratch.resolve().parents:
+        raise SystemExit(f"check-verify-sparks: scratch escaped: {scratch}")
+    (scratch / MARKER).write_text("verify-sparks\n", encoding="utf-8")
+    ledger = evidence / "scratch.txt"
+    if ledger.is_symlink():
+        raise SystemExit(f"check-verify-sparks: refusing symlink {ledger}")
+    with ledger.open("a", encoding="utf-8") as handle:
+        handle.write(str(scratch.resolve()) + "\n")
+    return scratch
+
+
+def remove_scratch(evidence: Path, scratch: Path, roots: list[Path]) -> None:
+    if not owned_scratch(scratch, roots):
+        raise SystemExit(f"check-verify-sparks: refusing to delete {scratch}")
+    shutil.rmtree(scratch)
+    clear_scratch_line(evidence, scratch)
+
+
+def owned_scratch(scratch: Path, roots: list[Path]) -> bool:
+    if not scratch.is_absolute() or scratch.is_symlink():
+        return False
+    resolved = scratch.resolve()
+    parent = scratch_parent(roots)
+    if parent not in resolved.parents:
+        return False
+    if not outside_all(resolved, roots):
+        return False
+    return (resolved / MARKER).is_file()
+
+
+def clear_scratch_line(evidence: Path, scratch: Path) -> None:
+    target = evidence / "scratch.txt"
+    if not target.is_file() or target.is_symlink():
+        return
+    kept = [
+        line for line in target.read_text(encoding="utf-8").splitlines()
+        if line and Path(line).resolve() != scratch.resolve()
+    ]
+    target.write_text("".join(f"{line}\n" for line in kept), encoding="utf-8")
+
+
+def check_entry_add(root: Path, roots: list[Path], findings: Findings, evidence: Path) -> None:
+    record = {
+        "type": "s",
+        "question": "Why is verification a skill?",
+        "answer": "The source is the spec.",
+    }
+    revised = {**record, "answer": "The source is the spec, read whole."}
+    spark_bin = ["uv", "run", "--script", str(root / "bin" / "sparks"), "entry", "add"]
+    scratch = make_scratch(evidence, roots, "verify-sparks-add")
+    try:
+        path = scratch / "named.json"
+        created = run_cmd(
+            [*spark_bin, "--path", str(path), "--json", json.dumps(record)],
+            cwd=scratch,
+            roots=roots,
+        )
+        created.cwd = scratch  # type: ignore[attr-defined]
+        if created.returncode != 0:
+            save_transcript(evidence, "entry-add.txt", created)
+            findings.add("FAIL", "entry-add", f"explicit --path failed: {created.stderr.strip()}")
+            return
+        written = json.loads(path.read_text(encoding="utf-8"))
+        created_id = written[0].get("id", "")
+        if (
+            len(written) != 1
+            or written[0]["question"] != record["question"]
+            or not ID_RE.fullmatch(created_id)
+            or not created.stdout.startswith("added ")
+        ):
+            save_transcript(evidence, "entry-add.txt", created, extra=path.read_text(encoding="utf-8"))
+            findings.add("FAIL", "entry-add", "explicit --path did not write one record with a 16-hex id")
+            return
+        before = path.read_bytes()
+        rejected = run_cmd(
+            [*spark_bin, "--path", str(path), "--json", "{"],
+            cwd=scratch,
+            roots=roots,
+        )
+        rejected.cwd = scratch  # type: ignore[attr-defined]
+        if (
+            rejected.returncode != 1
+            or not rejected.stderr.startswith("sparks: ")
+            or rejected.stderr.count("\n") != 1
+            or path.read_bytes() != before
+        ):
+            save_transcript(evidence, "entry-add.txt", rejected, extra=f"bytes_unchanged={path.read_bytes() == before}\n")
+            findings.add("FAIL", "entry-add", "invalid JSON was not a one-line sparks: refusal that left the file unchanged")
+            return
+        replaced = run_cmd(
+            [*spark_bin, "--path", str(path), "--json", json.dumps(revised)],
+            cwd=scratch,
+            roots=roots,
+        )
+        replaced.cwd = scratch  # type: ignore[attr-defined]
+        after = json.loads(path.read_text(encoding="utf-8"))
+        if replaced.returncode != 0 or len(after) != 1 or after[0]["id"] != created_id or after[0]["answer"] == record["answer"]:
+            save_transcript(evidence, "entry-add.txt", replaced, extra=path.read_text(encoding="utf-8"))
+            findings.add("FAIL", "entry-add", "replacement did not keep the stored id")
+            return
+        default_dir = scratch / "default-cwd"
+        default_dir.mkdir()
+        defaulted = run_cmd(
+            [*spark_bin, "--json", json.dumps(record)],
+            cwd=default_dir,
+            roots=roots,
+        )
+        defaulted.cwd = default_dir  # type: ignore[attr-defined]
+        default_path = default_dir / "sparks.json"
+        if defaulted.returncode != 0 or not default_path.is_file():
+            save_transcript(evidence, "entry-add.txt", defaulted)
+            findings.add("FAIL", "entry-add", "default ./sparks.json path did not create a file")
+            return
+        snapshot = path.read_text(encoding="utf-8")
+        (evidence / "entry-add-file.json").write_text(snapshot, encoding="utf-8")
+        save_transcript(
+            evidence,
+            "entry-add.txt",
+            created,
+            extra=(
+                f"--- refuse ---\nexit={rejected.returncode}\n{rejected.stderr}"
+                f"--- replace ---\nexit={replaced.returncode}\n{replaced.stdout}"
+                f"--- default cwd ---\nexit={defaulted.returncode}\n{defaulted.stdout}"
+                f"--- file after replace ---\n{snapshot}"
+            ),
+        )
+        findings.add(
+            "PASS",
+            "entry-add",
+            "explicit --path create, sparks: refusal, replace keeping the stored id, and default ./sparks.json",
+        )
+    finally:
+        if scratch.exists():
+            remove_scratch(evidence, scratch, roots)
+
+
+def parse_snapshot_line(stdout: str) -> dict[str, str] | None:
+    match = re.fullmatch(
+        r"snapshot (?P<time>\S+) workspaces=(?P<workspaces>\d+) tabs=(?P<tabs>\d+) "
+        r"panes=(?P<panes>\d+) agents=(?P<agents>\d+) db=(?P<db>.+)\n",
+        stdout,
+    )
+    return match.groupdict() if match else None
+
+
+def check_herdr(root: Path, roots: list[Path], evidence: Path) -> int:
+    if shutil.which("herdr") is None:
+        (evidence / "herdr-snapshot.txt").write_text(
+            "UNREACHABLE\nprerequisite: herdr on PATH and a running herdr server\n"
+            "command not started; default database not opened\n",
+            encoding="utf-8",
+        )
+        print("UNREACHABLE herdr-snapshot: herdr is not on PATH")
+        print("prerequisite: herdr on PATH and a running herdr server")
+        print("not a pass")
+        return 3
+    scratch = make_scratch(evidence, roots, "verify-sparks-herdr")
+    db = scratch / "herdr-state.sqlite"
+    try:
+        completed = run_cmd(
+            ["uv", "run", "--script", str(root / "bin" / "sparks"), "herdr", "snapshot", "--db", str(db)],
+            cwd=scratch,
+            roots=roots,
+        )
+        completed.cwd = scratch  # type: ignore[attr-defined]
+        extra = ""
+        unreachable = completed.returncode != 0 and (
+            "not running" in completed.stderr or "command not found" in completed.stderr
+        )
+        if unreachable:
+            save_transcript(evidence, "herdr-snapshot.txt", completed, extra="UNREACHABLE\n")
+            print(f"UNREACHABLE herdr-snapshot: {completed.stderr.strip()}")
+            print("prerequisite: a running herdr server; this drive never uses the default database")
+            print("not a pass")
+            return 3
+        if completed.returncode != 0:
+            save_transcript(evidence, "herdr-snapshot.txt", completed)
+            print(f"FAIL herdr-snapshot: {completed.stderr.strip() or completed.stdout.strip()}")
+            return 1
+        parsed = parse_snapshot_line(completed.stdout)
+        if not parsed or parsed["db"] != str(db):
+            save_transcript(evidence, "herdr-snapshot.txt", completed)
+            print(f"FAIL herdr-snapshot: unexpected stdout {completed.stdout!r}")
+            return 1
+        uri = "file:" + str(db).replace("?", "%3F") + "?mode=ro"
+        try:
+            connection = sqlite3.connect(uri, uri=True)
+        except sqlite3.Error as exc:
+            save_transcript(evidence, "herdr-snapshot.txt", completed, extra=f"sqlite open failed: {exc}\n")
+            print(f"FAIL herdr-snapshot: database is not readable sqlite: {exc}")
+            return 1
+        try:
+            tables = {
+                row[0]
+                for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            }
+            counts = {
+                name: connection.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0]
+                for name in ("workspaces", "tabs", "panes", "agents")
+            }
+            snapshot_row = connection.execute(
+                "SELECT captured_at, workspace_count, tab_count, pane_count, agent_count FROM snapshot"
+            ).fetchone()
+        finally:
+            connection.close()
+        extra = f"tables={sorted(tables)}\ncounts={counts}\nsnapshot_row={snapshot_row}\n"
+        save_transcript(evidence, "herdr-snapshot.txt", completed, extra=extra)
+        expected = {name: int(parsed[name]) for name in counts}
+        if not {"workspaces", "tabs", "panes", "agents", "snapshot"} <= tables or counts != expected:
+            print(f"FAIL herdr-snapshot: stdout counts {expected} != sqlite {counts}")
+            return 1
+        if snapshot_row is None or list(snapshot_row[1:]) != [counts["workspaces"], counts["tabs"], counts["panes"], counts["agents"]]:
+            print("FAIL herdr-snapshot: snapshot row does not match table counts")
+            return 1
+        print(completed.stdout, end="")
+        print("PASS herdr-snapshot isolated --db; sqlite counts match stdout")
+        return 0
+    finally:
+        if scratch.exists():
+            remove_scratch(evidence, scratch, roots)
+
+
+def evidence_dir(roots: list[Path], explicit: str | None, root: Path) -> Path:
+    if explicit:
+        raw = Path(explicit).expanduser()
+    elif os.environ.get("VERIFY_SPARKS_EVIDENCE"):
+        raw = Path(os.environ["VERIFY_SPARKS_EVIDENCE"]).expanduser()
+    else:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        raw = Path.home() / ".local" / "state" / "verify-sparks" / f"{stamp}-{head(root, roots)}"
+    path = raw.resolve()
+    if not outside_all(path, roots):
+        raise SystemExit(f"check-verify-sparks: evidence must be outside the checkout: {path}")
+    path.mkdir(parents=True, exist_ok=True)
+    if path.is_symlink():
+        raise SystemExit(f"check-verify-sparks: refusing symlink evidence dir {path}")
+    for name in ARTIFACTS:
+        candidate = path / name
+        if candidate.is_symlink():
+            raise SystemExit(f"check-verify-sparks: refusing symlink evidence file {candidate}")
+    return path
+
+
+def write_report(evidence: Path, root: Path, roots: list[Path], findings: Findings, *, merge: bool) -> None:
+    rows = list(findings.rows)
+    previous = evidence / "report.json"
+    current = {"repo": str(root), "head": head(root, roots)}
+    if merge and previous.is_file():
+        old = json.loads(previous.read_text(encoding="utf-8"))
+        if old.get("repo") != current["repo"] or old.get("head") != current["head"]:
+            raise SystemExit("check-verify-sparks: refusing to merge a report from a different repo or HEAD")
+        replaced = {check for _, check, _ in rows}
+        rows = [(row["status"], row["check"], row["detail"]) for row in old["rows"] if row["check"] not in replaced]
+        rows.extend(findings.rows)
+    lines = [
+        f"verify-sparks  repo={root}  HEAD={current['head']}  dirty={dirty(root, roots)}  "
+        f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}",
+    ]
+    for status, check, detail in rows:
+        lines.append(f"{status} {check:12} {detail}")
+    failed = sum(1 for status, _, _ in rows if status == "FAIL")
+    passed = sum(1 for status, _, _ in rows if status == "PASS")
+    lines.append(f"summary: {passed} pass, {failed} fail -> {'FAIL' if failed else 'PASS'}")
+    lines.append("script-pass is not a verification pass; prose.md is still required")
+    lines.append(f"evidence: {evidence}")
+    text = "\n".join(lines) + "\n"
+    for name in ("report.txt", "report.json"):
+        if (evidence / name).is_symlink():
+            raise SystemExit(f"check-verify-sparks: refusing symlink {evidence / name}")
+    (evidence / "report.txt").write_text(text, encoding="utf-8")
+    (evidence / "report.json").write_text(
+        json.dumps(
+            {
+                "repo": current["repo"],
+                "head": current["head"],
+                "dirty": dirty(root, roots),
+                "rows": [{"status": s, "check": c, "detail": d} for s, c, d in rows],
+                "prose_required": True,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    write_index(evidence, root)
+    print(text, end="")
+
+
+def cmd_doctor(root: Path, roots: list[Path]) -> int:
+    problems = []
+    try:
+        if sys.version_info < (3, 11):
+            problems.append(f"python {sys.version.split()[0]} is older than 3.11")
+        if shutil.which("uv") is None:
+            problems.append("uv is not on PATH")
+        if shutil.which("git") is None:
+            problems.append("git is not on PATH")
+        for relative in ("spark.schema.json", "bin/sparks", "spark_id.py", "spark_hash.py", "README.md"):
+            if not (root / relative).is_file():
+                problems.append(f"missing {relative}")
+        print(f"repo: {root}")
+        print(f"HEAD: {head(root, roots)}  dirty={dirty(root, roots)}")
+        print("surface: source corpus plus bin/sparks; no server is started")
+        print("herdr-snapshot needs an already running herdr; doctor does not start it and does not install packages")
+    except Exception as exc:
+        problems.append(f"{type(exc).__name__}: {exc}")
+    if problems:
+        print("doctor: FAIL")
+        for problem in problems:
+            print(f"  {problem}")
+        return 1
+    print("doctor: OK")
+    return 0
+
+
+def cmd_contradict(root: Path, roots: list[Path], evidence: Path, *, with_entry_add: bool) -> int:
+    spark_hash, spark_id = load_modules(root)
+    findings = Findings()
+    check_structure(root, spark_id, findings)
+    check_skills(root, findings)
+    check_example(root, roots, spark_id, findings, evidence)
+    check_vectors(spark_hash, findings)
+    if with_entry_add:
+        check_entry_add(root, roots, findings, evidence)
+    write_report(evidence, root, roots, findings, merge=False)
+    return 1 if findings.failed else 0
+
+
+def cmd_cleanup(evidence: Path, roots: list[Path]) -> int:
+    target = evidence / "scratch.txt"
+    if target.is_symlink():
+        print(f"cleanup: refusing symlink {target}")
+        return 1
+    removed = 0
+    kept: list[str] = []
+    if target.is_file():
+        for line in target.read_text(encoding="utf-8").splitlines():
+            if not line:
+                continue
+            path = Path(line)
+            if not owned_scratch(path, roots):
+                print(f"cleanup: refusing {line or '.'}")
+                kept.append(line)
+                continue
+            shutil.rmtree(path)
+            if path.exists():
+                print(f"cleanup: still present {path}")
+                kept.append(line)
+                continue
+            removed += 1
+        target.write_text("".join(f"{line}\n" for line in kept), encoding="utf-8")
+    print(f"cleanup: removed {removed} scratch dir(s); evidence kept at {evidence}")
+    return 1 if kept else 0
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="check-verify-sparks")
+    parser.add_argument("--repo", help="checkout to verify (default: the repo that contains this helper)")
+    parser.add_argument("--out", help="evidence directory outside the checkout; wins over VERIFY_SPARKS_EVIDENCE")
+    parser.add_argument(
+        "command",
+        choices=("doctor", "contradict", "entry-add", "herdr-snapshot", "run", "cleanup"),
+    )
+    args = parser.parse_args(argv)
+    root = repo_root(args.repo)
+    roots = [root]
+    if HELPER_REPO != root:
+        roots.append(HELPER_REPO)
+    if args.command == "doctor":
+        return cmd_doctor(root, roots)
+    evidence = evidence_dir(roots, args.out, root)
+    if args.command == "cleanup":
+        return cmd_cleanup(evidence, roots)
+    if args.command == "contradict":
+        return cmd_contradict(root, roots, evidence, with_entry_add=False)
+    if args.command == "entry-add":
+        findings = Findings()
+        check_entry_add(root, roots, findings, evidence)
+        write_report(evidence, root, roots, findings, merge=True)
+        print("entry-add exit follows this command only; the merged summary may still be FAIL")
+        return 1 if findings.failed else 0
+    if args.command == "herdr-snapshot":
+        return check_herdr(root, roots, evidence)
+    return cmd_contradict(root, roots, evidence, with_entry_add=True)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
