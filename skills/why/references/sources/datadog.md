@@ -4,8 +4,8 @@
 
 Datadog holds the runtime record, what actually happened in production, as opposed to what was planned or discussed.
 
-- **Metrics.** Counters, gauges, histograms instrumented by the team. A metric's *presence* is itself evidence that someone thought the number worth watching.
-- **Monitors & alerts.** Conditions the team decided warranted waking someone up. A monitor firing on `rate_limit_hit > 10/min` is direct evidence the team worried about that threshold.
+- **Metrics.** Counters, gauges, histograms instrumented by the team.
+- **Monitors & alerts.** Conditions the team decided warranted waking someone up.
 - **Dashboards.** Curated views of what the team considers important for a subsystem.
 - **APM traces & spans.** Request-level runtime data, for "why is this slow" / "why is there a timeout here" questions.
 - **Logs.** High-volume event records, often holding the error conditions that motivated defensive code.
@@ -80,11 +80,9 @@ Use the Datadog MCP. Start broad, then narrow.
 
 ## Common pitfalls
 
-- **Correlation is not causation.** A spike before a PR and stabilization after is suggestive, not definitive, since other changes may have landed in the same window. Check neighboring PRs.
-- **Overfitting to the chart you found.** A chart reflects its maker's framing. A chart named "retry success rate" is evidence the team cared about retry success, not that it's why a specific line of code exists.
+- **Reading intent.** See `docs/uncovering-intention.md` in the Sparks repo for how to read intent from this source.
 - **Vanished telemetry.** Metrics can be renamed, deleted, or have short retention. If you can't find data from the relevant window, that's a gap, not a null result.
 - **Noise at scale.** Narrow log searches by service, tag, and time window aggressively. Use `analyze_datadog_logs` to aggregate rather than dumping raw logs.
-- **Instrumented != caused.** A metric shows someone cared enough to measure something, not that the code was added *because* of it. Cross-reference with commit/PR dates.
 
 ## What to return
 

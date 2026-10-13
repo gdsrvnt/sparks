@@ -11,8 +11,6 @@
 - Runbooks that may explain defensive code
 - Strategy documents that set priorities
 
-Notion is where "why" often lives in long-form before it becomes code. A significant feature usually has a doc.
-
 ## How to search it
 
 Use the Notion MCP.
@@ -40,7 +38,7 @@ Use the Notion MCP.
 
 - **Outdated docs.** Specs are often written before implementation and not updated. The doc may describe a plan that changed. Cross-check against the actual PR.
 - **Doc vs. reality drift.** A spec may say "we'll do X" but the code actually does Y. Flag the divergence. The synthesizer will surface the contradiction.
-- **Boilerplate templates.** Some orgs require a "Why" section that gets filled with fluff. Look for specificity.
+- **Reading intent.** See `docs/uncovering-intention.md` in the Sparks repo for how to read intent from this source.
 - **Unlinked docs.** The most relevant doc may not be linked from anywhere. Broad keyword searches help.
 - **Multiple drafts.** If a topic has multiple docs, find the one that was finalized or most recently updated. Check dates.
 - **Access-restricted pages.** If you can't access a page, note it as a gap.

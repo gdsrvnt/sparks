@@ -6,7 +6,7 @@ These skills are copied unchanged from the `pstack` plugin in [cursor/plugins](h
 
 - `skills/ketchup/`
 - `skills/how/`
-- `skills/why/`
+- `skills/why/` (modified, see below)
 - `skills/teach/`
 - `skills/bro/`
 
@@ -18,6 +18,8 @@ These skills are bundled from the same plugin at the same commit. Every file is 
 - `skills/maintain-verification-skill/`
 
 They are not listed in `.github/upstreams.json`. To update them, copy them again from pstack and update this notice.
+
+`skills/why/` is modified in Sparks: passages that reason about intention were moved word for word out of `skills/why/references/investigator-prompt.md` and `skills/why/references/sources/{datadog,databricks,linear,notion,slack}.md` into [`docs/uncovering-intention.md`](docs/uncovering-intention.md), and each removal that left a gap now has a one-line pointer to that doc. The moved text is still poteto's, under the same MIT License, Copyright (c) 2026 Lauren Tan.
 
 `skills/spark-verification/` is an adapter over those two bundled skills. `skills/sparks-discuss/` routes to the copied `why` skill. poteto's material in both is under the same MIT License, Copyright (c) 2026 Lauren Tan.
 

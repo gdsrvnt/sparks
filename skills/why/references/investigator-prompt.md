@@ -44,8 +44,7 @@ Before reporting a finding as strong, ask whether you would expect to find it if
 
 ## Epistemic Discipline
 
-- **Mechanics are not motivation.** A commit changing `limit = 50` to `limit = 100` shows the change, not necessarily why. Look for the reason in the commit message, PR description, linked ticket, or review comments.
-- **No intent from code behavior or style.** You may read code to learn what the target *is*. "The author chose a functional approach" is an observation about code, not evidence of intent. Claim intent only where the author stated it.
+- **Intent.** Before claiming why the code exists, read `docs/uncovering-intention.md` in the Sparks repo and follow it.
 - **Preserve uncertainty.** Say when evidence is ambiguous, or when one reading is more plausible but not certain. Don't collapse ambiguity to look decisive.
 - **No silent substitutions.** If the question is about feature X and you only find evidence about feature Y, don't present Y's evidence as if it answers X.
 - **Gather, don't conclude.** Collect the raw material honestly and completely. Don't answer the question, form a final opinion on "the why", or pick sides in contradictions. Don't speculate beyond what the evidence supports. A hunch with no evidence isn't evidence. The synthesizer does the reasoning.
