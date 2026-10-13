@@ -17,14 +17,13 @@ How to tell why code came to be the way it is, as opposed to what it does. Every
 
 > A monitor firing on `rate_limit_hit > 10/min` is direct evidence the team worried about that threshold.
 
+> The threshold is frequently the answer to "why is this clamped at N?"
+
 - **Correlation is not causation.** A spike before a PR and stabilization after is suggestive, not definitive, since other changes may have landed in the same window. Check neighboring PRs.
 - **Overfitting to the chart you found.** A chart reflects its maker's framing. A chart named "retry success rate" is evidence the team cared about retry success, not that it's why a specific line of code exists.
 - **Instrumented != caused.** A metric shows someone cared enough to measure something, not that the code was added *because* of it. Cross-reference with commit/PR dates.
 
-> The threshold is frequently the answer to "why is this clamped at N?"
-
 > An incident whose timeline includes "added defensive check for X" is near-direct evidence.
-
 
 ## What warehouse data says about intent
 
@@ -35,7 +34,6 @@ How to tell why code came to be the way it is, as opposed to what it does. Every
 > Upstream changes frequently motivate consumer-code changes.
 
 > A p99 that matches the target's threshold constant suggests the number was chosen from data.
-
 
 ## Where the business why lives in tickets
 
@@ -52,7 +50,6 @@ How to tell why code came to be the way it is, as opposed to what it does. Every
 > Project-level documents are where specs and rationale are most often captured.
 
 > Labels hint at the category of motivation (customer-request, incident-followup, compliance).
-
 
 ## Where the long-form why lives
 
