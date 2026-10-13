@@ -5,6 +5,9 @@
 
 """Dependency-free XXH64 (xxHash 64-bit, oneshot).
 
+Ported from xxHash by Yann Collet (https://github.com/Cyan4973/xxHash),
+BSD 2-Clause License; see LICENSE-xxhash next to this file.
+
 Little-endian XXH64 as published by Yann Collet: four 64-bit accumulators
 over 32-byte stripes, merge rounds, an 8/4/1-byte tail, then the avalanche.
 Every add and multiply is masked to 64 bits. ``seed`` is reduced modulo
