@@ -4,8 +4,9 @@
 # dependencies = ["jsonschema>=4.18"]
 # ///
 
-"""``sparks entry add`` adds or replaces one SPARK record by exact question.
+"""Maintain SPARK records and snapshot the current herdr inventory in SQLite.
 
+``sparks entry add`` adds or replaces one SPARK record by exact question.
 The record shape comes from ``spark.schema.json``. ``spark_id.py`` derives
 the content id printed after a successful add. Neither id nor extra keys are stored.
 Both modules are read from the repository root, the parent of ``bin/``.
@@ -15,11 +16,16 @@ import argparse
 import contextlib
 import errno
 import json
+import math
 import os
+import shutil
+import sqlite3
 import stat
+import subprocess
 import sys
 import tempfile
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TextIO
 
@@ -352,9 +358,360 @@ def add(path: Path, record_json: str) -> str:
     return incoming.id
 
 
+SNAPSHOT_DESCRIPTION = """\
+Refresh the shared local SQLite database of current herdr state, not history.
+
+Calls exactly these four commands, non-interactively and in order:
+  herdr workspace list
+  herdr tab list
+  herdr pane list
+  herdr agent list
+Never runs bare herdr, starts a TUI, attaches, or prompts.
+Exits nonzero if herdr is missing or not running. A failed snapshot leaves
+previous inventory intact. Each call has a 30-second timeout, overridden by
+SPARKS_HERDR_TIMEOUT (a positive finite number of seconds).
+
+Database path: --db, else SPARKS_HERDR_DB, else
+$XDG_DATA_HOME/sparks/herdr-state.sqlite when XDG_DATA_HOME is non-empty,
+otherwise ~/.local/share/sparks/herdr-state.sqlite.
+
+exit status: 0 snapshot committed; 1 failure; 2 usage error.
+"""
+
+# In schema order. "id" is a required, non-empty string; other fields are nullable.
+# Nested column prefixes map to keys in agent_session and scroll objects.
+HERDR_COLUMNS = {
+    "workspace": (
+        ("workspace_id", "id"), ("label", "str"), ("number", "int"),
+        ("active_tab_id", "str"), ("agent_status", "str"), ("focused", "bool"),
+        ("pane_count", "int"), ("tab_count", "int"),
+    ),
+    "tab": (
+        ("tab_id", "id"), ("workspace_id", "id"), ("label", "str"),
+        ("number", "int"), ("agent_status", "str"), ("focused", "bool"),
+        ("pane_count", "int"),
+    ),
+    "pane": (
+        ("pane_id", "id"), ("workspace_id", "id"), ("tab_id", "id"),
+        ("cwd", "str"), ("foreground_cwd", "str"), ("agent_status", "str"),
+        ("focused", "bool"), ("revision", "int"), ("terminal_id", "str"),
+        ("terminal_title", "str"), ("terminal_title_stripped", "str"),
+        ("agent", "str"), ("agent_session_agent", "str"),
+        ("agent_session_kind", "str"), ("agent_session_source", "str"),
+        ("agent_session_value", "str"), ("restore_error", "str"),
+        ("scroll_offset_from_bottom", "int"),
+        ("scroll_max_offset_from_bottom", "int"), ("scroll_viewport_rows", "int"),
+    ),
+    "agent": (
+        ("name", "id"), ("pane_id", "id"), ("workspace_id", "id"),
+        ("tab_id", "id"), ("agent", "str"), ("agent_status", "str"),
+        ("cwd", "str"), ("foreground_cwd", "str"), ("focused", "bool"),
+        ("interactive_ready", "bool"), ("revision", "int"), ("terminal_id", "str"),
+        ("terminal_title", "str"), ("terminal_title_stripped", "str"),
+        ("completion_seq", "int"), ("state_change_seq", "int"),
+        ("screen_detection_skipped", "bool"), ("agent_session_agent", "str"),
+        ("agent_session_kind", "str"), ("agent_session_source", "str"),
+        ("agent_session_value", "str"),
+    ),
+}
+
+
+class SnapshotError(Exception):
+    """A complete one-line diagnostic, with no entry-add exit status 3."""
+
+    def __init__(self, message: str, code: int = 1) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _snapshot_reason(reason: object) -> str:
+    """Keep foreign output bounded, printable, and on a single line."""
+    return _show(" ".join(str(reason).split()))[:500]
+
+
+def _herdr_timeout() -> float:
+    text = os.environ.get("SPARKS_HERDR_TIMEOUT", "30")
+    try:
+        timeout = float(text)
+        if math.isfinite(timeout) and timeout > 0:
+            return timeout
+    except ValueError:
+        pass
+    raise SnapshotError("SPARKS_HERDR_TIMEOUT must be a positive finite number of seconds", 2)
+
+
+def _herdr_not_running(stdout: str, stderr: str) -> bool:
+    try:
+        error = json.loads(stderr)
+    except (ValueError, RecursionError):
+        error = None
+    if isinstance(error, dict) and isinstance(error.get("error"), dict):
+        if error["error"].get("code") == "server_not_running":
+            return True
+    text = " ".join(f"{stdout} {stderr}".lower().split())
+    return any(phrase in text for phrase in (
+        "server is not running", "server not running", "no herdr server is running",
+        "no server is running", "herdr is not running",
+    ))
+
+
+def _validate_herdr_rows(group: str, response: object) -> list[tuple]:
+    """Validate the envelope and all rows, including values SQLite cannot bind."""
+    table = f"{group}s"
+    if not isinstance(response, dict) or not isinstance(response.get("result"), dict):
+        raise ValueError("expected an object with a result object")
+    result = response["result"]
+    if result.get("type") != f"{group}_list":
+        raise ValueError(f"expected result.type {group}_list")
+    if not isinstance(result.get(table), list):
+        raise ValueError(f"expected result.{table} to be an array")
+    rows = []
+    keys = set()
+    agent_panes = set()
+    for index, obj in enumerate(result[table]):
+        where = f"{table}[{index}]"
+        if not isinstance(obj, dict):
+            raise ValueError(f"{where}: expected an object")
+        for nested in ("agent_session", "scroll"):
+            # Only validate recognized nested fields on the applicable entities.
+            if any(column.startswith(f"{nested}_") for column, _ in HERDR_COLUMNS[group]):
+                if nested in obj and not isinstance(obj[nested], dict):
+                    raise ValueError(f"{where}.{nested}: expected an object")
+        values = []
+        for column, kind in HERDR_COLUMNS[group]:
+            source = obj
+            field = column
+            for nested in ("agent_session", "scroll"):
+                if column.startswith(f"{nested}_"):
+                    source = obj.get(nested, {})
+                    field = column[len(nested) + 1:]
+                    break
+            value = source.get(field)
+            if kind == "id":
+                if not isinstance(value, str) or not value:
+                    raise ValueError(f"{where}.{column}: expected a non-empty string")
+            elif value is not None:
+                expected = {"str": str, "int": int, "bool": bool}[kind]
+                if type(value) is not expected:
+                    raise ValueError(f"{where}.{column}: expected {kind} or null")
+                if kind == "int" and not -(1 << 63) <= value < (1 << 63):
+                    raise ValueError(f"{where}.{column}: integer outside SQLite range")
+                if kind == "bool":
+                    value = int(value)
+            values.append(value)
+        if values[0] in keys:
+            raise ValueError(f"{where}: duplicate {HERDR_COLUMNS[group][0][0]}")
+        keys.add(values[0])
+        if group == "agent":
+            if values[1] in agent_panes:
+                raise ValueError(f"{where}: duplicate pane_id")
+            agent_panes.add(values[1])
+        raw = json.dumps(obj, ensure_ascii=False, allow_nan=False)
+        raw.encode("utf-8")  # Reject lone surrogates before creating/opening the database.
+        rows.append((*values, raw))
+    return rows
+
+
+def _collect_herdr(timeout: float) -> dict[str, list[tuple]]:
+    executable = shutil.which("herdr")
+    if executable is None:
+        raise SnapshotError("herdr: command not found")
+    inventory = {}
+    for group in HERDR_COLUMNS:
+        subject = f"herdr {group} list"
+        try:
+            result = subprocess.run(
+                [executable, group, "list"], shell=False, capture_output=True,
+                encoding="utf-8", errors="replace", timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            raise SnapshotError(f"{subject}: command timed out") from None
+        except OSError as exc:
+            raise SnapshotError(f"herdr: {_snapshot_reason(_why(exc))}") from exc
+        except (ValueError, OverflowError) as exc:
+            raise SnapshotError(f"{subject}: {_snapshot_reason(exc)}") from exc
+        if result.returncode:
+            if _herdr_not_running(result.stdout, result.stderr):
+                raise SnapshotError("herdr is not running")
+            reason = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+            raise SnapshotError(f"{subject}: {_snapshot_reason(reason)}")
+        try:
+            response = _parse(result.stdout, subject)
+            inventory[group] = _validate_herdr_rows(group, response)
+        except Rejected as exc:
+            raise SnapshotError(f"{subject}: {_snapshot_reason(exc.problem)}") from exc
+        except (ValueError, RecursionError) as exc:
+            raise SnapshotError(f"{subject}: {_snapshot_reason(exc)}") from exc
+    return inventory
+
+
+def _snapshot_path(argument: str | None) -> str:
+    if argument is not None:
+        return argument
+    if "SPARKS_HERDR_DB" in os.environ:
+        return os.environ["SPARKS_HERDR_DB"]
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        return str(Path(xdg) / "sparks" / "herdr-state.sqlite")
+    try:
+        return str(Path.home() / ".local" / "share" / "sparks" / "herdr-state.sqlite")
+    except RuntimeError as exc:
+        raise SnapshotError(f"database path: {_snapshot_reason(exc)}") from exc
+
+
+def _snapshot_parents(directory: Path) -> None:
+    """Create each missing parent with mkdir mode 0755, not just the leaf parent."""
+    missing = []
+    while True:
+        try:
+            mode = directory.stat().st_mode
+        except FileNotFoundError:
+            missing.append(directory)
+            directory = directory.parent
+        else:
+            if not stat.S_ISDIR(mode):
+                raise NotADirectoryError(errno.ENOTDIR, "not a directory", str(directory))
+            break
+    for directory in reversed(missing):
+        try:
+            directory.mkdir(mode=0o755)
+        except FileExistsError:  # Another writer may have just created this parent.
+            if not directory.is_dir():
+                raise NotADirectoryError(errno.ENOTDIR, "not a directory", str(directory))
+
+
+def _snapshot_file(target: Path) -> None:
+    """Refuse non-files; exclusively create a missing file so its mode is ours to set."""
+    try:
+        mode = target.stat().st_mode
+    except FileNotFoundError:
+        # Do not follow a dangling symlink and accidentally create its target.
+        if target.is_symlink():
+            raise ValueError("not a regular file")
+    else:
+        if not stat.S_ISREG(mode):
+            raise ValueError("not a regular file")
+        return
+    _snapshot_parents(target.parent)
+    try:
+        fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        if not stat.S_ISREG(target.stat().st_mode):
+            raise ValueError("not a regular file")
+    else:
+        os.close(fd)
+        if os.name == "posix":
+            with contextlib.suppress(OSError):
+                os.chmod(target, 0o600)
+
+
+def _check_snapshot_version(connection: sqlite3.Connection) -> bool:
+    """Read before journal-mode changes, and recheck under the write lock."""
+    if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='meta'").fetchone():
+        row = connection.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
+        value = row[0] if row else None
+        if value != "1":
+            raise ValueError(f"unsupported schema_version {value} (expected 1)")
+        return True
+    return False
+
+
+def _create_snapshot_schema(connection: sqlite3.Connection, has_meta: bool) -> None:
+    # execute, not executescript: the latter would implicitly commit the transaction.
+    connection.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    if not has_meta:
+        connection.execute("INSERT INTO meta (key, value) VALUES ('schema_version', '1')")
+    connection.execute("""CREATE TABLE IF NOT EXISTS snapshot (
+        id INTEGER PRIMARY KEY CHECK (id = 1), captured_at TEXT NOT NULL,
+        workspace_count INTEGER NOT NULL, tab_count INTEGER NOT NULL,
+        pane_count INTEGER NOT NULL, agent_count INTEGER NOT NULL
+    )""")
+    for group, columns in HERDR_COLUMNS.items():
+        definitions = []
+        for index, (column, kind) in enumerate(columns):
+            sql_type = "INTEGER" if kind in ("int", "bool") else "TEXT"
+            constraint = " PRIMARY KEY" if index == 0 else " NOT NULL" if kind == "id" else ""
+            if group == "agent" and column == "pane_id":
+                constraint += " UNIQUE"
+            definitions.append(f"{column} {sql_type}{constraint}")
+        definitions.append("raw_json TEXT NOT NULL")
+        connection.execute(f"CREATE TABLE IF NOT EXISTS {group}s ({', '.join(definitions)})")
+    for table, column, name in (
+        ("tabs", "workspace_id", "tabs_workspace"),
+        ("panes", "workspace_id", "panes_workspace"),
+        ("panes", "tab_id", "panes_tab"),
+        ("agents", "workspace_id", "agents_workspace"),
+        ("agents", "agent_status", "agents_status"),
+    ):
+        connection.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table}({column})")
+
+
+def _write_snapshot(path: str, inventory: dict[str, list[tuple]]) -> str:
+    try:
+        target = Path(path)
+        _snapshot_file(target)
+        # An absolute filename avoids SQLite's special :memory: and empty-path meanings.
+        # It is only used for opening; the user's spelling is retained in output.
+        with contextlib.closing(sqlite3.connect(
+            str(target.absolute()), timeout=5, isolation_level=None,
+        )) as connection:
+            connection.execute("PRAGMA busy_timeout=5000")
+            _check_snapshot_version(connection)
+            # SQLite requires journal_mode outside a transaction. All schema/data
+            # changes below are in one explicit transaction. Both context managers
+            # are inside the error boundary, including commit, rollback, and close.
+            connection.execute("PRAGMA journal_mode=WAL")
+            with connection:
+                connection.execute("BEGIN IMMEDIATE")
+                captured_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+                _create_snapshot_schema(connection, _check_snapshot_version(connection))
+                # A name can change, or two names can swap panes. Remove obsolete
+                # ownership before upserts to avoid transient UNIQUE violations.
+                connection.executemany(
+                    "DELETE FROM agents WHERE pane_id = ? AND name != ?",
+                    [(row[1], row[0]) for row in inventory["agent"]],
+                )
+                for group, fields in HERDR_COLUMNS.items():
+                    table = f"{group}s"
+                    columns = [column for column, _ in fields] + ["raw_json"]
+                    primary = columns[0]
+                    placeholders = ", ".join("?" for _ in columns)
+                    updates = ", ".join(f"{column}=excluded.{column}" for column in columns[1:])
+                    rows = inventory[group]
+                    connection.executemany(
+                        f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders}) "
+                        f"ON CONFLICT ({primary}) DO UPDATE SET {updates}", rows,
+                    )
+                    keys = {row[0] for row in rows}
+                    # Avoid an IN clause's SQLite parameter limit for a large server.
+                    absent = [(key,) for (key,) in connection.execute(f"SELECT {primary} FROM {table}")
+                              if key not in keys]
+                    connection.executemany(f"DELETE FROM {table} WHERE {primary} = ?", absent)
+                connection.execute(
+                    "INSERT INTO snapshot VALUES (1, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET "
+                    "captured_at=excluded.captured_at, workspace_count=excluded.workspace_count, "
+                    "tab_count=excluded.tab_count, pane_count=excluded.pane_count, agent_count=excluded.agent_count",
+                    (captured_at, *(len(inventory[group]) for group in HERDR_COLUMNS)),
+                )
+        return captured_at
+    except (sqlite3.Error, OSError, ValueError) as exc:
+        reason = _why(exc) if isinstance(exc, OSError) else str(exc)
+        raise SnapshotError(f"{_show(path)}: {_snapshot_reason(reason)}") from exc
+
+
+def snapshot(db: str | None = None) -> str:
+    """Fetch and validate everything before any filesystem or database write."""
+    timeout = _herdr_timeout()
+    path = _snapshot_path(db)
+    inventory = _collect_herdr(timeout)
+    captured_at = _write_snapshot(path, inventory)
+    counts = " ".join(f"{group}s={len(inventory[group])}" for group in HERDR_COLUMNS)
+    return f"snapshot {captured_at} {counts} db={_show(path)}"
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="sparks", description="Keep SPARK records in a spark file (sparks.json)."
+        prog="sparks", description="Keep SPARK records and snapshot current herdr state."
     )
     commands = parser.add_subparsers(dest="command", required=True, metavar="<command>")
     entry = commands.add_parser(
@@ -382,11 +739,33 @@ def _parser() -> argparse.ArgumentParser:
         metavar="<json>",
         help='one record: {"type": "s"|"p"|"a"|"r"|"k", "question": ..., "answer": ...}',
     )
+    herdr = commands.add_parser(
+        "herdr", help="shared local herdr state", description="Shared local herdr state."
+    )
+    herdr_actions = herdr.add_subparsers(dest="action", required=True, metavar="<action>")
+    snapshot_parser = herdr_actions.add_parser(
+        "snapshot", help="snapshot the current inventory in SQLite",
+        description=SNAPSHOT_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    snapshot_parser.add_argument(
+        "--db", metavar="<path>", help="shared SQLite database path (see precedence below)",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "herdr":
+        try:
+            output = snapshot(args.db)
+        except SnapshotError as exc:
+            _say(sys.stderr, f"sparks: {exc}\n")
+            return exc.code
+        # _say handles OS-level closed/broken pipes; a closed in-process text
+        # stream instead raises ValueError. Neither may undo a committed snapshot.
+        with contextlib.suppress(ValueError):
+            _say(sys.stdout, f"{output}\n")
+        return 0
     try:
         record_id = add(args.path, args.record)
     except Rejected as exc:
