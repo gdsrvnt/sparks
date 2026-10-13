@@ -7,7 +7,6 @@ These skills are copied unchanged from the `pstack` plugin in [cursor/plugins](h
 - `skills/ketchup/`
 - `skills/how/`
 - `skills/why/`
-- `skills/teach/`
 - `skills/bro/`
 
 They're licensed under the MIT License, Copyright (c) 2026 Lauren Tan. The full license text is in [`skills/LICENSE-poteto`](skills/LICENSE-poteto).

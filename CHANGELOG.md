@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Removed
 
+- `skills/teach/`, with its `THIRD_PARTY_NOTICES.md` entry. Parked on branch `teach-rework` for rework before re-merging ([#51](https://github.com/gdsrvnt/sparks/issues/51)). Findings from [Discussion #45](https://github.com/gdsrvnt/sparks/discussions/45): depends on nonexistent `unslop`, calls `how`/`why` with model invocation disabled, asks `why` for a narrow run it does not allow.
 - `.github/workflows/upstream-tracker.yml`, `.github/upstreams.json`, and `.github/upstream-check.sh`. We no longer track upstream skill sources daily.
 - `skills/grill-me/`, with its `THIRD_PARTY_NOTICES.md` entry. `sparks-discuss` and `sparks-domain` still derive from Matt Pocock's work and keep his credit and `skills/LICENSE-mattpocock`.
 
