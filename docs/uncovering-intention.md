@@ -1,6 +1,6 @@
 # Uncovering intention (draft)
 
-How to tell why code came to be the way it is, as opposed to what it does. Every quoted passage below is by Lauren Tan ([@poteto](https://github.com/poteto)), moved word for word out of the investigator playbooks of the bundled `why` skill (`skills/why/references/`, from pstack at commit `118e73b`). It is used under the MIT License, Copyright (c) 2026 Lauren Tan; see [`skills/LICENSE-poteto`](../skills/LICENSE-poteto) and [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). Headings and source notes are Sparks additions.
+How to tell why code came to be the way it is, as opposed to what it does. Everything below except the headings and the *From* notes is by Lauren Tan ([@poteto](https://github.com/poteto)), moved word for word out of the investigator playbooks of the bundled `why` skill (`skills/why/references/`, from pstack at commit `118e73b`). It is used under the MIT License, Copyright (c) 2026 Lauren Tan; see [`skills/LICENSE-poteto`](../skills/LICENSE-poteto) and [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). Headings and *From* notes are Sparks additions. The `why` skill pastes the section for each investigator's source, plus the first section, into that investigator's prompt.
 
 ## Reading intent from evidence
 
@@ -19,14 +19,23 @@ How to tell why code came to be the way it is, as opposed to what it does. Every
 
 - **Correlation is not causation.** A spike before a PR and stabilization after is suggestive, not definitive, since other changes may have landed in the same window. Check neighboring PRs.
 - **Overfitting to the chart you found.** A chart reflects its maker's framing. A chart named "retry success rate" is evidence the team cared about retry success, not that it's why a specific line of code exists.
-
 - **Instrumented != caused.** A metric shows someone cared enough to measure something, not that the code was added *because* of it. Cross-reference with commit/PR dates.
+
+> The threshold is frequently the answer to "why is this clamped at N?"
+
+> An incident whose timeline includes "added defensive check for X" is near-direct evidence.
+
 
 ## What warehouse data says about intent
 
 *From `sources/databricks.md`.*
 
 - **Instrumented ≠ caused.** An event's existence means someone cared enough to log it, not that the target code exists *because* of it. Pair with a PR/commit citation from the git investigator before claiming causation.
+
+> Upstream changes frequently motivate consumer-code changes.
+
+> A p99 that matches the target's threshold constant suggests the number was chosen from data.
+
 
 ## Where the business why lives in tickets
 
@@ -39,6 +48,11 @@ How to tell why code came to be the way it is, as opposed to what it does. Every
 > Milestones tie work to deadlines, which often reveal motivation.
 
 - **Mechanical templates.** Some teams require "Why" sections but fill them with boilerplate. Generic text ("improve user experience") is probably not a real answer.
+
+> Project-level documents are where specs and rationale are most often captured.
+
+> Labels hint at the category of motivation (customer-request, incident-followup, compliance).
+
 
 ## Where the long-form why lives
 

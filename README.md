@@ -18,7 +18,7 @@ After the plugin is listed, install it from Customize: find Sparks and choose In
 
 To load this repository locally before it is published:
 
-1. Copy this plugin into `~/.cursor/plugins/local/sparks`, including `.cursor-plugin/plugin.json` and the component directories.
+1. Copy this plugin into `~/.cursor/plugins/local/sparks`, including `.cursor-plugin/plugin.json`, the component directories, and `docs/` (the `why` skill reads `docs/uncovering-intention.md`).
 2. Reload Cursor.
 3. Open Customize and confirm the plugin is present.
 

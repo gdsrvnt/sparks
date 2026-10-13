@@ -12,14 +12,14 @@ These skills are copied unchanged from the `pstack` plugin in [cursor/plugins](h
 
 They're licensed under the MIT License, Copyright (c) 2026 Lauren Tan. The full license text is in [`skills/LICENSE-poteto`](skills/LICENSE-poteto).
 
+`skills/why/` is modified in Sparks: passages that reason about intention were moved word for word out of `skills/why/references/investigator-prompt.md` and `skills/why/references/sources/{datadog,databricks,linear,notion,slack}.md` into [`docs/uncovering-intention.md`](docs/uncovering-intention.md), and each removal that left a gap now has a one-line pointer to that doc; `skills/why/SKILL.md` Step 3 pastes the relevant sections of the doc into each investigator prompt. Any re-copy of `skills/why/` from upstream must redo this move. The moved text is still poteto's, under the same MIT License, Copyright (c) 2026 Lauren Tan.
+
 These skills are bundled from the same plugin at the same commit. Every file is copied unchanged, and each folder also holds pstack's `LICENSE` (MIT License, Copyright (c) 2026 Lauren Tan) next to its `SKILL.md`:
 
 - `skills/create-verification-skill/`
 - `skills/maintain-verification-skill/`
 
 They are not listed in `.github/upstreams.json`. To update them, copy them again from pstack and update this notice.
-
-`skills/why/` is modified in Sparks: passages that reason about intention were moved word for word out of `skills/why/references/investigator-prompt.md` and `skills/why/references/sources/{datadog,databricks,linear,notion,slack}.md` into [`docs/uncovering-intention.md`](docs/uncovering-intention.md), and each removal that left a gap now has a one-line pointer to that doc. The moved text is still poteto's, under the same MIT License, Copyright (c) 2026 Lauren Tan.
 
 `skills/spark-verification/` is an adapter over those two bundled skills. `skills/sparks-discuss/` routes to the copied `why` skill. poteto's material in both is under the same MIT License, Copyright (c) 2026 Lauren Tan.
 

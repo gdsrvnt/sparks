@@ -51,6 +51,7 @@ Spawn one investigator per category that has a matching MCP, all in a single mes
 Each investigator's prompt is `references/investigator-prompt.md` filled in, plus:
 - the category playbook `references/sources/<source>.md` for the selected MCP, adapted from the examples in `references/source-playbook.md`
 - `references/sources/incident-postmortem.md` **if the target code looks defensive** (null checks, retry logic, timeout handling, rate limiting, feature flags, egress guards, OOM handlers)
+- from `docs/uncovering-intention.md` at the Sparks plugin root (two levels above this skill's folder; if it is missing, fetch https://github.com/gdsrvnt/sparks/blob/main/docs/uncovering-intention.md), the first section plus the section whose *From* note names the selected playbook
 - the code anchor and the user's original question
 
 ### Investigator roster, one per available evidence category

@@ -44,7 +44,7 @@ Before reporting a finding as strong, ask whether you would expect to find it if
 
 ## Epistemic Discipline
 
-- **Intent.** Before claiming why the code exists, read `docs/uncovering-intention.md` in the Sparks repo and follow it.
+- **Intent.** Before treating anything as evidence of intent, apply the intent guidance appended to your prompt from Sparks' `docs/uncovering-intention.md`.
 - **Preserve uncertainty.** Say when evidence is ambiguous, or when one reading is more plausible but not certain. Don't collapse ambiguity to look decisive.
 - **No silent substitutions.** If the question is about feature X and you only find evidence about feature Y, don't present Y's evidence as if it answers X.
 - **Gather, don't conclude.** Collect the raw material honestly and completely. Don't answer the question, form a final opinion on "the why", or pick sides in contradictions. Don't speculate beyond what the evidence supports. A hunch with no evidence isn't evidence. The synthesizer does the reasoning.

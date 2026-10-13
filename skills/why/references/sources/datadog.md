@@ -30,7 +30,7 @@ Use the Datadog MCP. Start broad, then narrow.
    search_datadog_monitors   (same queries)
    ```
 
-   When a dashboard or monitor covers the target, note its queries and watched thresholds. The threshold is frequently the answer to "why is this clamped at N?"
+   When a dashboard or monitor covers the target, note its queries and watched thresholds.
 
 3. **Metrics around the target.**
 
@@ -68,7 +68,7 @@ Use the Datadog MCP. Start broad, then narrow.
    get_datadog_incident     (full detail for a specific incident)
    ```
 
-   If the target looks defensive, search for incidents around the time it was added. An incident whose timeline includes "added defensive check for X" is near-direct evidence.
+   If the target looks defensive, search for incidents around the time it was added.
 
 ## What good evidence looks like here
 
@@ -80,7 +80,7 @@ Use the Datadog MCP. Start broad, then narrow.
 
 ## Common pitfalls
 
-- **Reading intent.** See `docs/uncovering-intention.md` in the Sparks repo for how to read intent from this source.
+- **Reading intent.** Follow the intent guidance for this source, appended to your prompt from Sparks' `docs/uncovering-intention.md`.
 - **Vanished telemetry.** Metrics can be renamed, deleted, or have short retention. If you can't find data from the relevant window, that's a gap, not a null result.
 - **Noise at scale.** Narrow log searches by service, tag, and time window aggressively. Use `analyze_datadog_logs` to aggregate rather than dumping raw logs.
 

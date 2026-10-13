@@ -17,8 +17,8 @@ Use the Linear MCP.
 1. **Start with linked tickets.** If the seed commits or PRs reference ticket IDs (e.g., `ENG-1234`, `[BUG-567]`), fetch those first with `get_issue`. Read the full issue including comments.
 2. **List related issues by keyword.** Use `list_issues` with text search for the feature name, key symbol, or business term. Try multiple phrasings.
 3. **Walk the issue tree.** If you land on a sub-issue, fetch its parent.
-4. **Read project docs.** If the issue belongs to a project, use `get_project` and check attached docs. Project-level documents are where specs and rationale are most often captured.
-5. **Check labels and milestones.** Labels hint at the category of motivation (customer-request, incident-followup, compliance).
+4. **Read project docs.** If the issue belongs to a project, use `get_project` and check attached docs.
+5. **Check labels and milestones.**
 
 ## What good evidence looks like here
 
@@ -31,7 +31,7 @@ Use the Linear MCP.
 ## Common pitfalls
 
 - **Scope drift.** The ticket the PR references may have been closed and reopened with a different scope. Read the whole history.
-- **Reading intent.** See `docs/uncovering-intention.md` in the Sparks repo for how to read intent from this source.
+- **Reading intent.** Follow the intent guidance for this source, appended to your prompt from Sparks' `docs/uncovering-intention.md`.
 - **Stale tickets.** Old tickets often reflect a version of the plan that changed. Check dates and cross-reference with the code's ship date.
 - **Closed-as-duplicate chains.** Follow the duplicate-of relationships back to the canonical ticket.
 - **Private workspace content.** If you can't access an issue, note that as a gap rather than guessing.

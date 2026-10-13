@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
-- `skills/why/`: moved poteto's intention-reasoning passages out of the investigator prompt and the Datadog, Databricks, Linear, Notion, and Slack playbooks, verbatim, into `docs/uncovering-intention.md` (draft). Removed pitfall bullets and the investigator prompt's intent rules are replaced by one-line pointers to the doc. `THIRD_PARTY_NOTICES.md` now marks `why` as modified.
+- `skills/why/`: moved poteto's intention-reasoning passages out of the investigator prompt and the Datadog, Databricks, Linear, Notion, and Slack playbooks, verbatim, into `docs/uncovering-intention.md` (draft). Removed pitfall bullets and the investigator prompt's intent rules are replaced by one-line pointers, and `skills/why/SKILL.md` Step 3 now pastes the matching doc sections into each investigator prompt. The local-install step in `README.md` now includes `docs/`. `THIRD_PARTY_NOTICES.md` marks `why` as modified.
 - Renamed `skills/use-herdr/` to `skills/herdr-operations/` (frontmatter `name: herdr-operations`). Updated references in `skills/sparks-postcall/SKILL.md` and `README.md`.
 - `spark.schema.json`: `type` must be one of `S`, `P`, `A`, `R`, or `K`. Records no longer have an `id` key. `spark.json`, `spark_id.py`, and `bin/sparks` follow that shape. The derived id is still printed on add, but it is not stored.
 
