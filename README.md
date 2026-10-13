@@ -10,7 +10,7 @@ the purpose of the sparks is simple and explicit: They are ammunition for spark-
 
 This repository is a single Cursor plugin. The manifest is `.cursor-plugin/plugin.json` (`name`: `sparks`, package version `0.1.0`).
 
-Sparks gathers, maintains, and structures project context as question-and-answer pairs. It is built for Grok Bot and usable in any harness.
+Sparks gathers, maintains, and structures project context as question-and-answer pairs. It is built for coding agents and usable in any harness.
 
 ### Installation
 
@@ -65,6 +65,20 @@ path/to/sparks/bin/sparks entry add --json '{"type":"s","question":"What is Spar
 - Fuzzy duplicate flagging is not implemented. See the [design suggestions](docs/duplicate-detection.md) for its proposed evolution; only exact questions trigger replacement ([#21](https://github.com/gdsrvnt/sparks/issues/21)).
 
 `bin/spark`, without the s, is an unrelated placeholder that does nothing. On Windows, run `uv run --script bin/sparks entry add ...`. Run the tests with `uv run tests/test_sparks.py tests/test_spark_hash.py`.
+
+### `sparks herdr snapshot`
+
+`bin/sparks herdr snapshot [--db <path>]` non-interactively calls `herdr workspace list`, `herdr tab list`, `herdr pane list`, and `herdr agent list` to refresh a shared local SQLite database. It never runs bare `herdr`.
+
+The path is `--db`, else `SPARKS_HERDR_DB`, else `$XDG_DATA_HOME/sparks/herdr-state.sqlite` when `XDG_DATA_HOME` is set and non-empty, otherwise `~/.local/share/sparks/herdr-state.sqlite`.
+
+Success prints one stdout line with the UTC snapshot time and row counts:
+
+```text
+snapshot <captured_at> workspaces=<n> tabs=<n> panes=<n> agents=<n> db=<path>
+```
+
+The database is current state, not a history log. A failed run leaves the previous file unchanged. Exit 1 reports a snapshot failure (including herdr missing or not running) with one stderr line; exit 2 reports a usage error.
 
 ## Background
 

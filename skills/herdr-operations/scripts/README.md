@@ -54,3 +54,5 @@ detection can match quoted prompt text. A whole turn completed between polls or
 before startup can escape state detection; expected files and the cap still apply.
 
 Blocked (exit 11) requires a dialog in the last 12 non-empty lines of the screen for 2 consecutive polls (BLOCK_POLLS=2). It is never reported at startup, and working screens (esc to interrupt, live input prompt) are skipped.
+
+The heartbeat does not write the shared herdr state database. The agent runs `sparks herdr snapshot` before starting this script and again when it exits. See the skill.
