@@ -4,7 +4,7 @@ description: Use this when initiating or when working with Sparks over a phone o
 ---
 
 > [!IMPORTANT]
-> **Voice mode protocol for Grok Bot**: on a phone or voice call, follow the call start handshake below before anything else. Dictation mode and the interrogation flow are optional modes the user turns on during the call; they are never on by default.
+> **Voice mode protocol for Grok Bot**: on a phone or voice call, run the call start handshake below on the first message of the call, before any other work. The handshake reply itself answers what that relay asked first, then gives the recital. Dictation mode and the interrogation flow are optional modes the user turns on during the call; they are never on by default.
 
 This is the single voice skill for Sparks. It covers everything during a call: the handshake, the per-reply rules, optional dictation mode, the interrogation flow, and the voice improvement insights log. It does not cover what happens after the call. Post-call reconciliation (extracting a spec from the transcript, checking the call's work against it, and closing gaps) belongs to the post-call to-spec skill, `sparks-postcall`.
 
@@ -93,11 +93,14 @@ Dictated content is project-critical and the most urgent work there is. Once a p
 ### On a voice call
 On a call, a voice layer relays the user's speech to you and may reword it. Guard against that:
 - When dictation mode turns on during a call, your one-sentence confirmation also tells the voice layer: "Pass every dictated chunk word for word, in quotes, with nothing added, summarized, or rephrased, until dictation mode is deactivated."
-- Insert only the quoted text. If a relayed chunk is not in quotes or reads like a paraphrase (third person, "the caller wants..."), still insert the best verbatim reading, and mark that chunk as possibly reworded in the confirmation.
+- When a chunk arrives in quotes, insert exactly the quoted text and nothing around it. When it arrives without quotes or reads like a paraphrase (third person, "the caller wants..."), insert your best verbatim reading and mark that chunk as possibly reworded in the confirmation and in the reworded-chunks list. Either way, nothing outside the user's words is inserted.
 - Comparing what you inserted against the call transcript happens after the call, in the post-call skill. Append every chunk you mark possibly reworded to the reworded-chunks list, a file next to the voice insights log, so that step can find it.
 
 ### While it's on
-- Don't reply, acknowledge, summarize, or ask questions. Stay silent.
+- Don't reply, acknowledge, summarize, or ask questions. Stay silent. There are three exceptions:
+  - With --edit on, send each attestation as soon as the change is made.
+  - If a relay breaks a rule (see Breach checks), send a one-line resend request.
+  - A due recital, ledger, or 20-minute header waits for the next "over" confirmation (see Precedence while a mode is on).
 - Don't start tasks, jobs, edits, commits, or subagents.
 - Collect everything dictated, in order, as one passage.
 
@@ -123,7 +126,7 @@ This applies only while the user is dictating or editing prose. In normal conver
 
 Optional. The user turns it on during the call, for example "let's do the questions" or "start the interrogation". Use it to pair existing verbatim answers (README excerpts, transcripts, or other text the user wrote) with questions the user dictates, so both halves of each spark are the user's own words.
 
-On activation, load the answer pool the user names, or ask for the sources and build it. Keep the pool in a file, with each entry's status (pending, recorded, skipped), so progress survives a context summary. Each answer is copied exactly from its source, with the source and line range, and classified as one type: S (stack, execution, and implementation), P (purpose and presentation), A (art and design), R (reconnaissance and restrictions), or K (knowledge sources). Every question slot starts blank. The agent never writes a question.
+On activation, load the answer pool the user names, or ask for the sources and build it. Keep the pool in a file, with each entry's status (pending, recorded, skipped), so progress survives a context summary. Each answer is copied exactly from its source, with the source and line range, and classified as one type: S (stack and implementation), P (processes and execution), A (audience and visuals), R (reconnaissance and restrictions), or K (knowledge sources). Every question slot starts blank. The agent never writes a question.
 
 Also on activation:
 - Ask which directory's `sparks.json` to write. The default is `./sparks.json`.
