@@ -150,9 +150,9 @@ A sparks.json includes any number of entries, json objects with a type of "s", "
 
 ### entry types
 
-#### S: Stack
+#### S: Stack, execution, and implementation
 
-The S stands for stack and implementation, and Spark entries of type S address the actual stack constituents, the tooling, the dependencies, the build pipelines, the production infrastructure, and other things pertaining to the plumbing and the nuts and bolts of the project itself; they answer architecture questions too. They're question answer pairs relating to the stack of the project. Again, optional.
+The S stands for stack, execution, and implementation, and Spark entries of type S address the actual stack constituents, the tooling, the dependencies, the build pipelines, the production infrastructure, and other things pertaining to the plumbing and the nuts and bolts of the project itself; they answer architecture questions too. They're question answer pairs relating to the stack of the project. Again, optional.
 
 
 #### P: Purpose and presentation
