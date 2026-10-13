@@ -48,7 +48,7 @@ A term is settled when the user has named it, defined it, and grounded it. Then 
 - **Only this project's terms.** General programming concepts (timeouts, error types, utility patterns) don't get term entries, even if the project uses them heavily. Before asking, check: is this unique to the project, or general?
 - **What the term is, not how it's built.** A term entry defines the concept. Implementation belongs in its own `[S]` question.
 - **Rejected synonyms are restrictions.** When the user rejects a word for a concept, that is a candidate `[R]` entry that assumes the intent: "Why is 'account' never used for a Customer here?"
-- **Type follows the term's home.** Tag the question with the type the concept lives in: `[S]` for stack and architecture, `[P]` for purpose, audience, and packaging, `[A]` for the sensory footprint, `[R]` for what to avoid, `[K]` for knowledge sources.
+- **Type follows the term's home.** Tag the question with the type the concept lives in: `[S]` for stack and architecture, `[P]` for protocol and execution, `[A]` for audience and visuals (the sensory footprint), `[R]` for what to avoid, `[K]` for knowledge sources.
 - **Capture inline.** Propose the entry as soon as the term settles. Don't batch terms for the end. The proposal is that turn's one question, as in sparks-discuss.
 
 If the project has more than one bounded context, work out which one the current topic belongs to and name it in the question ("In billing, what is…"). If it's unclear, ask.

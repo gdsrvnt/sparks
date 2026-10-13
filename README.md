@@ -150,18 +150,18 @@ A sparks.json includes any number of entries, json objects with a type of "s", "
 
 ### entry types
 
-#### S: Stack, execution, and implementation
+#### S: Stack and implementation
 
-The S stands for stack, execution, and implementation, and Spark entries of type S address the actual stack constituents, the tooling, the dependencies, the build pipelines, the production infrastructure, and other things pertaining to the plumbing and the nuts and bolts of the project itself; they answer architecture questions too. They're question answer pairs relating to the stack of the project. Again, optional.
+The S stands for stack and implementation, and Spark entries of type S address the actual stack constituents, the tooling, the dependencies, the build pipelines, the production infrastructure, and other things pertaining to the plumbing and the nuts and bolts of the project itself; they answer architecture questions too. They're question answer pairs relating to the stack of the project. Again, optional.
 
 
-#### P: Purpose and presentation
+#### P: Protocol and execution
 
-Everything that is created is created for a purpose and is intended to have an effect on those who interact with it. The P, which stands for purpose and presentation, is the subset of spark entries that answer questions about the shape the project has and the physical space it takes up in the world. The shape that it expresses to the world and or the effect and appearance that it should have on the public and those who see it. The P entries should also answer exactly who it is who will observe this in production and how they feel about it. Like with every other type of spark entity, the question answer pairs need not only pertain to the desired production shape, but also may pertain to what should not be the shape and what sentiments and impressions should the product or project not leave on those who observe it. Furthermore, it should answer questions about who it is that this project will be marketed to. Who is it that will be told about this project? Who is it that cares about this project and will be judging something based on this project and its quality? And also, how is it that this project will be evaluated and perceived?
+Everything that is created is created for a purpose and is intended to have an effect on those who interact with it. The P, which stands for protocol and execution, is the subset of spark entries that answer questions about the shape the project has and the physical space it takes up in the world. The shape that it expresses to the world and or the effect and appearance that it should have on the public and those who see it. The P entries should also answer exactly who it is who will observe this in production and how they feel about it. Like with every other type of spark entity, the question answer pairs need not only pertain to the desired production shape, but also may pertain to what should not be the shape and what sentiments and impressions should the product or project not leave on those who observe it. Furthermore, it should answer questions about who it is that this project will be marketed to. Who is it that will be told about this project? Who is it that cares about this project and will be judging something based on this project and its quality? And also, how is it that this project will be evaluated and perceived?
 
 How is this packaged, branded, presented and shipped? Why, when, who, where <all of those things>?
 
-#### A: Art and design
+#### A: Audience and visuals
 
 This section, or rather, this type of entry is of course closely related to type P. Indeed, type A is the means by which the type P entries are achieved, and thus P informs A, and A necessarily has consequences for P. Because this is the type of entry most heavily influenced by taste of the team and nature of the project, it is also the one whose conventions are least strict, if it can be said that any of the entry types have conventions at all.
 
