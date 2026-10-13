@@ -2,6 +2,10 @@
 
 > Spark is a way of engineering the context of a project or a repository in such a fashion that makes the information have three things that current approaches to context management don't have.
 
+## Purpose
+
+the purpose of the sparks is simple and explicit: They are ammunition for spark-verification, a specialized version of potetos create verification skill that updates or maintains (see maintain verification skill, also poteto) verification skills to be used in all work. the thesis of spark is that if verification skills are the highest leverage asset in the age of orchestration, then the default best move on the board is to invest in the pipelines that distill intent in almost-real time as agents run.
+
 ## Cursor plugin
 
 This repository is a single Cursor plugin. The manifest is `.cursor-plugin/plugin.json` (`name`: `sparks`, package version `0.1.0`).
