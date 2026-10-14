@@ -37,9 +37,7 @@ Communication to and from subagents should be sparse. Communicate primarily thro
 
 9. Clean up all **implementer subagent** worktrees.
 
-## Runtime
-
-Parent owns every tab it creates. Each child owns only the ticket it was given. Read tab, pane and workspace ids from herdr's JSON in the same turn. Anthropic models use Claude Code. xAI and OpenAI models use pi. Only those two harnesses. These are command templates, not a batch script; follow herdr-operations' look-first, snapshot, prompt-confirmation and heartbeat loop. The final workspace-close template requires the cleanup ownership check below. `tdd` and `code-review` name workflows: use the project's test-first and review guidance, not an assumed Skill tool or an uninstalled slash command.
+## Runtime templates
 
 ```sh
 herdr tab create --workspace <workspace id> --label impl-frontier
@@ -57,8 +55,8 @@ herdr agent start impl-notes --kind pi --pane <pane id> -- --provider openai-cod
 ```
 
 ```sh
-herdr agent prompt impl-frontier "You own this ticket only; parent is implement-spec."
-herdr agent prompt impl-sql "You own this ticket only; parent is implement-spec."
+herdr agent prompt impl-frontier "You own this ticket only; parent implement-spec owns this tab."
+herdr agent prompt impl-sql "You own this ticket only; parent implement-spec owns this tab."
 ```
 
 ```sh
