@@ -10,5 +10,11 @@
     "question": "What is the best place to find pi documentation when working on sparks functionality that interfaces with it through herdr?",
     "answer": "docs/house/pi",
     "id": "2944f552293027c2"
+  },
+  {
+    "type": "k",
+    "question": "Sparks encodes taste and preference built up across interactions. What happens when two people's taste lands in the same sparks.json — say a collaborator adds a spark that clashes with yours? Does sparks support multiple authors, and if so, whose taste governs?",
+    "answer": "That's a great question, and the answer to that is actually that Cerebras, the chip manufacturer, that's C E R E B R A S, has published an article called How We Built Our Knowledge Base that talks about compiling knowledge bases out of different sources and especially from sources where there are multiple human contributors. And it outlines some measures that that team took in order to sort out the matter of hierarchy as you're describing it here. So let's go ahead and get a copy of that article into the repo library, and let's add it as a knowledge source by path in the type K spark, and let's also credit the Cerebras team in the lovely readme of the sparks repository, and then in the future, we will discuss how to implement this, when the time comes to implement the functionality for consolidating sparks into a single ingress and egress using that spark.db file.\n\nKnowledge source: docs/library/cerebras-how-we-built-our-knowledge-base.md",
+    "id": "15d5018e861af44b"
   }
 ]
