@@ -1750,7 +1750,18 @@ def spawn_plan(persona_name: str, additional: str | None, timeout_ms: int,
     types, type_files = _model_types(Path(cwd))
     steps = _chain(entry, types, where)
     rows = _pi_list()
-    chain = [_resolve(step, rows, where) for step in steps]
+    chain = []
+    seen = set()
+    for step in steps:
+        resolved = _resolve(step, rows, where)
+        if resolved["available"]:
+            # Provider omission, model/provider case and effort aliases may all
+            # resolve to the same invocation. Keep its first occurrence only.
+            combo = (resolved["provider"], resolved["model"], resolved["pi"][-1])
+            if combo in seen:
+                continue
+            seen.add(combo)
+        chain.append(resolved)  # retain deterministic unavailable-step reporting
     chosen = next((index for index, step in enumerate(chain) if step["available"]), None)
     if chosen is None:
         reasons = "; ".join(f"{step['type']} {step['model']}: {step['reason']}" for step in chain)

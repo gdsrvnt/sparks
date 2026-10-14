@@ -10,29 +10,21 @@ export const TOKEN = "sparks_api_error";
 export const RUN_TOKEN = "sparks_run";
 export const PREFIX = "sparks:api-error: ";
 const SOURCE = "sparks:pi";
-const MAX_CHARS = 300;
 
 function enabled(): boolean {
   return process.env.HERDR_ENV === "1" && !!process.env.HERDR_SOCKET_PATH && !!process.env.HERDR_PANE_ID;
 }
 
-/** Publish a category and sanitized message, never unrestricted provider text. */
+/** Only orchestration categories leave the local pi view, never provider diagnostics. */
 export function apiError(message: any): string | undefined {
   if (message?.role !== "assistant" || message?.stopReason !== "error") return undefined;
   const text = typeof message.errorMessage === "string" ? message.errorMessage : "";
   const provider = /^[a-z][a-z0-9_-]{0,39}$/i.test(message.provider ?? "") ? message.provider : "model";
-  // Discard the entire tail after a credential label. Values may be short,
-  // quoted, contain spaces, or use custom-provider formats. Do not guess length.
-  const line = text.replace(/\s+/g, " ").trim()
-    .replace(/(?<![A-Za-z0-9])((?:api[\s_-]*)?key|token|bearer|authorization)(?![A-Za-z0-9]).*$/i, "$1 [redacted]")
-    .replace(/\b(sk|xai|key|token)-[A-Za-z0-9_*-]+/gi, "[redacted]")
-    .replace(/[A-Za-z0-9_*+/=-]{32,}/g, "[redacted]") || "model request failed";
-  // Extract textual status only after redaction: a credential like "token: 401"
-  // must not be copied back into the category as a putative HTTP status.
+  // Accept only an HTTP error status, not arbitrary numbers from diagnostics.
+  // Never copy even a prefix of provider text: credentials can occur anywhere.
   const status = String(message.status ?? message.statusCode ?? "").match(/^[45]\d\d$/)?.[0]
-    ?? line.match(/\b([45]\d\d)\b/)?.[1];
-  const safe = `${provider}${status ? ` HTTP ${status}` : ""} api error: ${line}`;
-  return safe.length > MAX_CHARS ? `${safe.slice(0, MAX_CHARS - 3)}...` : safe;
+    ?? text.match(/\bHTTP\s+([45]\d\d)\b/i)?.[1];
+  return `${provider}${status ? ` HTTP ${status}` : ""} api error: model request failed`;
 }
 
 function send(request: any, timeoutMs = 1000): Promise<boolean> {
@@ -80,6 +72,7 @@ export default function (pi) {
   let lastError: string | undefined;
   let blocked = false;
   let seq = 0;
+  let activeRun = false;
   const publish = async (error, outcome) => {
     const delivered = await reportToken(error, `${seq}:${outcome}`);
     if (!delivered) console.error("sparks: completion metadata delivery failed; outcome unconfirmed");
@@ -91,7 +84,10 @@ export default function (pi) {
   });
   pi.on("agent_start", async () => {
     if (!rootSession) return;
-    seq += 1;
+    // Retry/recovery continuations emit another low-level agent_start before
+    // agent_settled. All of them belong to the same submitted logical run.
+    if (!activeRun) seq += 1;
+    activeRun = true;
     lastError = undefined;
     await publish(null, "running");
     if (blocked) {
@@ -104,6 +100,7 @@ export default function (pi) {
   });
   pi.on("agent_settled", async (event) => {
     if (!rootSession) return;
+    activeRun = false;
     const error = event?.aborted ? undefined : lastError;
     const delivered = await publish(error ?? null, event?.aborted ? "aborted" : error ? "error" : "ok");
     if (delivered && error && !blocked) {

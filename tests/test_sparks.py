@@ -3270,6 +3270,32 @@ def test_spawn_custom_model_type_resolves_its_chain_and_skips_an_unavailable_mod
     assert "flex" not in plan["command"]  # pi has no service tier flag
 
 
+@pytest.mark.parametrize(("provider", "model", "own_effort", "bucket_effort"), [
+    (None, "claude-sonnet-5-5", "high", "high"),
+    ("ANTHROPIC", "CLAUDE-SONNET-5-5", "HIGH", "high"),
+    (None, "claude-sonnet-5-5", "Extra  High", "xhigh"),
+    ("Anthropic", "claude-sonnet-5-5", "extra-high", "extrahigh"),
+])
+def test_spawn_deduplicates_resolved_invocations(fake_spawn, provider, model, own_effort, bucket_effort):
+    fake_spawn.model_types(TYPES.replace('effort = "high"', f'effort = "{bucket_effort}"'))
+    fake_spawn.personas(persona(model_type="sharp", provider=provider, model=model, effort=own_effort))
+    fake_spawn.replies(table=TYPES_TABLE, overrides={"herdr agent start": [START_FAILED, {"stdout": "{}"}]})
+    plan = fake_spawn.plan("reviewer")
+    assert [(s["type"], s["model"], s["available"]) for s in plan["chain"]] == [
+        ("persona", "claude-sonnet-5-5", True), ("sharp", "grok-4.7", True),
+        ("cheap", "grok-9", False),
+    ]
+    assert plan["chosen"] == 0
+    assert plan["chain"][0]["effort"] == own_effort  # first occurrence wins
+    result = fake_spawn.run("reviewer")
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert [a["model"] for a in out["attempts"]] == ["claude-sonnet-5-5", "grok-4.7"]
+    starts = [c for c in fake_spawn.herdr_calls() if c[1:3] == ["agent", "start"]]
+    assert len(starts) == 2
+    assert sum(c[1:3] == ["tab", "close"] for c in fake_spawn.herdr_calls()) == 1
+
+
 def test_spawn_project_type_replaces_the_shipped_type_of_that_name(fake_spawn):
     fake_spawn.model_types('[fast]\n[[fast.combos]]\nprovider = "xai"\nmodel = "grok-4.7"\neffort = "minimal"\n')
     fake_spawn.personas(persona(model="claude-opus-9"))
@@ -3695,13 +3721,162 @@ def test_extensions_delayed_metadata_both_load_orders_and_delivery_failure(tmp_p
         assert report["afterSuccess"] == {"sparks_run": "2:ok", "sparks_api_error": None}
         assert report["tokens"] == {"sparks_run": "3:aborted", "sparks_api_error": None}
         assert report["emitted"][1][0] == {"active": False}
-    for value, secret in zip(report["redacted"], ["demo-secret-1234", "=x", "Bearer a", "Basic xy", '"q"', ": z", "short value", "sk-abc", "A" * 40]):
-        assert secret not in value
-        assert "[redacted]" in value and value.startswith("custom api error:")
-    assert all(len(value) <= 300 for value in report["redacted"])
-    assert "401" not in report["redacted"][-3]
-    assert "short-secret" not in report["redacted"][-2]
-    assert ": v" not in report["redacted"][-1]
+    assert report["redacted"] == ["custom api error: model request failed"] * 13
+
+
+# Drive the installed AgentSession's logical-run/retry lifecycle with the real
+# Agent (and thus runAgentLoop/runAgentLoopContinue), synthetic streams only.
+LOGICAL_RUN_DRIVER = r"""
+import net from "node:net";
+import {EventEmitter} from "node:events";
+const [extension, core, socketPath, scenario, diagnostic] = process.argv.slice(2);
+const {AgentSession} = await import(core + "/agent-session.js");
+const packages = new URL("../../../", core + "/");
+const {Agent} = await import(new URL("pi-agent-core/dist/agent.js", packages));
+const {AssistantMessageEventStream} = await import(new URL("pi-ai/dist/utils/event-stream.js", packages));
+let tokens = {};
+const markers = [], labels = [], lifecycle = [], retryEvents = [];
+const server = net.createServer(socket => {
+  let buffer = "";
+  socket.on("data", data => {
+    buffer += data.toString();
+    if (!buffer.includes("\n")) return;
+    const request = JSON.parse(buffer.split("\n")[0]);
+    Object.assign(tokens, request.params.tokens);
+    markers.push(tokens.sparks_run);
+    socket.write(JSON.stringify({id: request.id, result: {type: "ok"}}) + "\n");
+  });
+});
+await new Promise(resolve => server.listen(socketPath, resolve));
+process.env.HERDR_ENV = "1";
+process.env.HERDR_SOCKET_PATH = socketPath;
+process.env.HERDR_PANE_ID = "w1:p9";
+const handlers = {};
+const events = new EventEmitter();
+events.on("herdr:blocked", data => labels.push(data));
+const fire = async event => {
+  lifecycle.push(event.type);
+  for (const h of handlers[event.type] ?? []) await h(event, {mode: "tui"});
+};
+const module = await import(extension);
+module.default({on: (name, h) => (handlers[name] ??= []).push(h), events});
+await fire({type: "session_start"});
+const model = {id: "synthetic", provider: "custom", api: "synthetic", contextWindow: 100000};
+let calls = 0, nextRun = false;
+const agent = new Agent({initialState: {model, tools: []}, streamFn: () => {
+  calls++;
+  const error = !nextRun && (scenario === "retry-exhausted" || (scenario === "retry-success" && calls === 1));
+  const message = {role: "assistant", provider: "custom", model: "synthetic", api: "synthetic",
+    content: [], stopReason: error ? "error" : "stop", timestamp: Date.now(),
+    usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+      cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0}},
+    ...(error ? {errorMessage: diagnostic} : {})};
+  const stream = new AssistantMessageEventStream();
+  stream.push(error ? {type: "error", reason: "error", error: message} : {type: "done", reason: "stop", message});
+  return stream;
+}});
+const session = Object.create(AgentSession.prototype);
+// Replace persistence/prompt construction and compaction with an in-memory
+// transcript. _startRun, _handlePostAgentRun, _prepareRetry and settlement are
+// installed pi code, not a hand-paired start/settled event simulation.
+Object.assign(session, {agent, _retryAttempt: 0, _lastAssistantToolResults: [],
+  _pendingToolNames: new Set(), _deferredSettledActions: [],
+  settingsManager: {getRetrySettings: () => ({enabled: true, maxRetries: 1, baseDelayMs: 0, maxDelayMs: 0})},
+  _extensionRunner: {emit: fire},
+  _prepareRun: async () => [{role: "user", content: [{type: "text", text: "synthetic task"}], timestamp: Date.now()}],
+  _recordSelection: () => {}, _flushPendingBashMessages: () => {}, _flushPendingCustomMessages: () => {},
+  _resolveIdleWaitIfIdle: () => {}, _modelForMessage: () => model,
+  _checkCompaction: async () => false,
+  _omitRecoveryAttempt: message => {agent.state.messages = agent.state.messages.filter(m => m !== message);},
+  _emit: event => {if (event.type.startsWith("auto_retry")) retryEvents.push({type: event.type, success: event.success});},
+  _runBeforeSettleBoundary: async () => false,
+});
+let queued = false;
+agent.subscribe(async event => {
+  await fire(event);
+  if (event.type === "message_end" && event.message.role === "assistant") {
+    session._lastAssistantMessage = event.message;
+    if (event.message.stopReason !== "error" && session._retryAttempt > 0) {
+      session._emit({type: "auto_retry_end", success: true});
+      session._retryAttempt = 0;
+    }
+  }
+  // Work queued at agent_end needs another low-level loop before settlement,
+  // just like recovery or an agent_before_settle continuation.
+  if (event.type === "agent_end" && scenario === "continuation" && !queued) {
+    queued = true;
+    agent.followUp({role: "user", content: [{type: "text", text: "continue"}], timestamp: Date.now()});
+  }
+});
+await session._startRun({});
+const terminal = {...tokens}, firstMarkers = markers.slice(), firstLifecycle = lifecycle.slice();
+nextRun = true;
+await session._startRun({});
+server.close();
+console.log(JSON.stringify({terminal, firstMarkers, firstLifecycle, markers, labels, tokens, calls, retryEvents}));
+"""
+
+
+SECRET_DIAGNOSTICS = [
+    "HTTP 503 demo-secret-1234 is not a valid API key",
+    "HTTP 503 Authentication failed for credential: demo-secret-1234",
+    "HTTP 503 password demo-secret-1234 was rejected",
+    "HTTP 503 client-secret demo-secret-1234 was rejected",
+    "HTTP 503 Unable to reach https://user:demo-secret-1234@example.invalid/v1",
+    "HTTP 503 Unlabelled diagnostic demo-secret-1234",  # no heuristic needed
+]
+
+
+@pytest.mark.parametrize(("scenario", "diagnostic"), [
+    ("retry-success", SECRET_DIAGNOSTICS[0]),
+    ("continuation", "unused"),
+    *[("retry-exhausted", text) for text in SECRET_DIAGNOSTICS],
+])
+def test_spawn_actual_pi_logical_run_and_safe_error_fallback(fake_spawn, tmp_path, scenario, diagnostic):
+    core = installed_pi_core()
+    driver = tmp_path / "logical-run.mjs"
+    driver.write_text(LOGICAL_RUN_DRIVER, encoding="utf-8")
+    done = subprocess.run([shutil.which("node"), str(driver), EXTENSION, core.as_uri(),
+                           str(tmp_path / "logical.sock"), scenario, diagnostic],
+                          capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    report = json.loads(done.stdout.strip().splitlines()[-1])
+    error = scenario == "retry-exhausted"
+    outcome = "error" if error else "ok"
+    assert report["firstMarkers"] == ["0:ready", "1:running", "1:running", f"1:{outcome}"]
+    assert report["markers"][-2:] == ["2:running", "2:ok"]
+    assert report["calls"] == 3
+    assert report["firstLifecycle"].count("agent_start") == 2
+    assert report["firstLifecycle"].count("agent_end") == 2
+    assert report["firstLifecycle"].count("agent_settled") == 1
+    assert report["tokens"] == {"sparks_run": "2:ok", "sparks_api_error": None}
+    if error:
+        safe = "custom HTTP 503 api error: model request failed"
+        assert report["terminal"]["sparks_api_error"] == safe
+        assert report["labels"] == [{"active": True, "label": "sparks:api-error: " + safe}, {"active": False}]
+        assert report["retryEvents"][-1] == {"type": "auto_retry_end", "success": False}
+    else:
+        assert report["terminal"]["sparks_api_error"] is None
+        assert report["labels"] == []  # transient diagnostics never leave pi
+    fake_spawn.model_types(TYPES)
+    fake_spawn.personas(persona(model_type="sharp"))
+    infos = [agent_info("idle", {"sparks_run": "0:ready"}),
+             agent_info("blocked" if error else "idle", report["terminal"])]
+    if error:
+        infos += [agent_info("idle", {"sparks_run": "0:ready"}), agent_info("idle", {"sparks_run": "1:ok"})]
+    fake_spawn.replies(table=TYPES_TABLE, overrides={"herdr agent get": infos})
+    result = fake_spawn.run("reviewer", "--prompt", "go", "--watch", "20")
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert len(out["attempts"]) == (2 if error else 1)
+    assert out["attempts"][-1]["result"] == "started"
+    assert sum(c[1:3] == ["tab", "close"] for c in fake_spawn.herdr_calls()) == int(error)
+    if error:
+        assert out["combo"]["model"] == "claude-sonnet-5-5"
+        assert safe in out["attempts"][0]["result"] and safe in result.stderr
+    # Covers shared tokens, blocked labels, extension streams, CLI stderr and
+    # attempts JSON. The original diagnostic is never an orchestration payload.
+    assert "demo-secret-1234" not in done.stdout + done.stderr + result.stdout + result.stderr
 
 
 # format and ids
