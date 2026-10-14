@@ -22,7 +22,7 @@ Interview the user until you share an understanding of the thread. The user is t
 
 ## A good spark
 
-A good spark fulfills the missions and goals stated in the sparks [README](../../README.md) and honours its thesis maximally: ammunition for spark-verification, human intent distilled verbatim, rationale bound to the rule. Aim every question at that. A spark that doesn't serve it isn't worth the user's words.
+A good spark fulfills the missions and goals stated in the sparks [README](../../philosophy/README.md) and honours its thesis maximally: ammunition for spark-verification, human intent distilled verbatim, rationale bound to the rule. Aim every question at that. A spark that doesn't serve it isn't worth the user's words.
 
 ## Personas
 
