@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- `sparks agent spawn <persona>`: launches an agent persona from `.sparks/agents.toml` (or the shipped `defaults/agents.toml`) as a pi session in a new herdr tab, trying the persona's model type combos from `defaults/model-types.toml` and falling back on start or API errors. Adapted from `gstack spawn` in [gdsrvnt/gstack](https://github.com/gdsrvnt/gstack).
+- `defaults/agent.toml` (persona schema), `defaults/agents.toml` (spec-writer, implementer, reviewer), `defaults/model-types.toml` (value, powerful, fast), the `/agent-personas` skill, and the pi extension `pi/extensions/sparks-api-error-blocked.ts`.
 - `.cursor/skills/verify-sparks/`: project-local verification skill generated from the bundled `create-verification-skill`. Source-wide semantic contradiction is the precedent. `scripts/check-verify-sparks` checks decidable cross-file claims, the published XXH64 vectors, and one isolated `sparks add` path. It does not replace `spark-verification`.
 
 ### Changed

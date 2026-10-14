@@ -21,12 +21,14 @@ import stat
 import subprocess
 import sys
 import time
+import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 from jsonschema import Draft202012Validator
 
+INSTALLED_PI_DIR = Path(os.environ.get("PI_CODING_AGENT_DIR", Path.home() / ".pi" / "agent"))
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "bin" / "sparks"
 sys.path.insert(0, str(ROOT))
@@ -2128,6 +2130,7 @@ def test_herdr_snapshot_public_files_and_fixtures_have_no_machine_specific_strin
         BIN, ROOT / "README.md", ROOT / "CHANGELOG.md",
         ROOT / "skills" / "herdr-operations" / "SKILL.md",
         ROOT / "skills" / "herdr-operations" / "scripts" / "README.md",
+        ROOT / "defaults" / "agent.toml", ROOT / "skills" / "agent-personas" / "SKILL.md",
     )
     for path in public_files:
         text = path.read_text(encoding="utf-8")
@@ -2582,6 +2585,1298 @@ def test_herdr_query_uri_escaping_and_symlinks(saved_snapshot, name):
         result = query_sparks(fake, "--db", str(alias))
         assert_rejected(result, "pending journal data")
     fake.assert_calls(())
+
+
+# agent spawn
+
+
+PI_TABLE = """\
+provider      model              context  max-out  thinking  images
+anthropic     claude-opus-5      1M       128K     yes       yes
+openai        gpt-4o             128K     16K      no        yes
+openai        gpt-5.5            1M       128K     yes       yes
+openai-codex  gpt-5.5            1M       128K     yes       yes
+"""
+# PI_TABLE plus a model from the shipped value type and one for the test types.
+TYPES_TABLE = PI_TABLE + """\
+anthropic     claude-sonnet-5-5  1M       128K     yes       yes
+xai           grok-4.7           500K     500K     yes       yes
+"""
+
+FAKE_TOOL = r'''
+import json
+import os
+import sys
+
+name = os.path.basename(sys.argv[0])
+key = name + " " + " ".join(sys.argv[1:3])
+with open(os.environ["SPARKS_TEST_SPAWN_LOG"], "a", encoding="utf-8") as log:
+    log.write(json.dumps([name, *sys.argv[1:]]) + "\n")
+with open(os.environ["SPARKS_TEST_SPAWN_LOG"], encoding="utf-8") as log:
+    seen = sum(1 for line in log if (lambda c: " ".join([c[0], *c[1:3]]))(json.loads(line)) == key)
+with open(os.environ["SPARKS_TEST_SPAWN_REPLIES"], encoding="utf-8") as config:
+    replies = json.load(config)
+reply = replies.get(key)
+if key == "herdr agent get" and reply == "run-protocol":
+    with open(os.environ["SPARKS_TEST_SPAWN_LOG"], encoding="utf-8") as log:
+        calls = [json.loads(line) for line in log]
+    last_start = max(i for i, c in enumerate(calls) if c[1:3] == ["agent", "start"])
+    prompted = any(c[1:3] == ["agent", "prompt"] for c in calls[last_start:])
+    reply = {"stdout": json.dumps({"result": {"agent": {"agent_status": "idle",
+        "tokens": {"sparks_run": "1:ok" if prompted else "0:ready"}}}})}
+if isinstance(reply, list):  # one reply per call, the last one repeating
+    reply = reply[min(seen, len(reply)) - 1]
+if reply is None:
+    sys.stderr.write("fake: unexpected argv\n")
+    sys.exit(73)
+sys.stdout.write(reply.get("stdout", ""))
+sys.stderr.write(reply.get("stderr", ""))
+sys.exit(reply.get("code", 0))
+'''
+
+AGENT_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}")
+EXTENSION = str(ROOT / "pi" / "extensions" / "sparks-api-error-blocked.ts")
+CREATED = {"result": {"tab": {"tab_id": "w1:t9"}, "root_pane": {"pane_id": "w1:p9"}}}
+START_FAILED = {"code": 1, "stderr": '{"error":{"message":"timed out"}}\n'}
+CLOSED = {"stdout": '{"result":{"type":"ok"}}'}
+
+
+def agent_info(status, tokens=None):
+    agent = {"agent": "pi", "agent_status": status, "pane_id": "w1:p9"}
+    if tokens is not None:
+        agent["tokens"] = tokens
+    return {"stdout": json.dumps({"result": {"type": "agent_info", "agent": agent}})}
+
+
+def sparks_prompt(name="reviewer"):
+    return cli.SPARKS_PROMPT.format(name=name)
+
+
+def tail(name="reviewer", *prompts):
+    """The pi arguments every persona ends with: the extension and the system prompts."""
+    args = ["-e", EXTENSION, "--append-system-prompt", sparks_prompt(name)]
+    for prompt in prompts:
+        args += ["--append-system-prompt", prompt]
+    return args
+
+
+class FakeSpawn:
+    """A project with .sparks/agents.toml, run from a subdirectory, and fake pi and herdr."""
+
+    def __init__(self, directory, monkeypatch):
+        self.bin_dir = directory / "fake-bin"
+        self.bin_dir.mkdir()
+        for tool in ("pi", "herdr"):
+            path = self.bin_dir / tool
+            path.write_text(f"#!{sys.executable}\n" + FAKE_TOOL, encoding="utf-8")
+            path.chmod(0o755)
+        self.log = directory / "spawn-argv.jsonl"
+        self.replies_path = directory / "spawn-replies.json"
+        self.home = directory / "home"
+        self.home.mkdir()
+        self.project = directory / "project"
+        self.cwd = self.project / "deep" / "er"
+        self.cwd.mkdir(parents=True)
+        (self.project / ".git").mkdir()  # the lookup stops here
+        (self.project / ".sparks").mkdir()
+        (self.project / ".sparks").chmod(0o755)
+        self.config = self.project / ".sparks" / "agents.toml"
+        self.types = self.project / ".sparks" / "model-types.toml"
+        monkeypatch.setenv("PATH", str(self.bin_dir) + os.pathsep + os.environ.get("PATH", ""))
+        monkeypatch.setenv("SPARKS_TEST_SPAWN_LOG", str(self.log))
+        monkeypatch.setenv("SPARKS_TEST_SPAWN_REPLIES", str(self.replies_path))
+        monkeypatch.setenv("HOME", str(self.home))  # no user skills leak in
+        monkeypatch.delenv("PI_CODING_AGENT_DIR", raising=False)
+        monkeypatch.delenv("HERDR_WORKSPACE_ID", raising=False)
+        self.replies(start_code=0)
+        self.personas(persona())
+
+    def personas(self, text, path=None):
+        path = path or self.config
+        path.parent.mkdir(exist_ok=True)
+        path.parent.chmod(0o755)
+        path.write_text(text, encoding="utf-8")
+        path.chmod(0o644)
+
+    def model_types(self, text):
+        self.personas(text, path=self.types)
+
+    def replies(self, start_code=0, table=PI_TABLE, overrides=None):
+        """overrides: replies keyed by "<tool> <argv 1> <argv 2>", such as "herdr tab create".
+        A list holds one reply per call."""
+        replies = {"pi --list-models": {"stdout": table}}
+        replies["herdr tab create"] = {"stdout": json.dumps(CREATED)}
+        replies["herdr agent start"] = {"stdout": "{}"} if start_code == 0 else START_FAILED
+        replies["herdr pane read"] = {"stdout": "pane says why\n"}
+        replies["herdr tab close"] = CLOSED
+        replies["herdr agent prompt"] = {"stdout": "{}"}
+        replies["herdr agent get"] = "run-protocol"
+        replies.update(overrides or {})
+        self.replies_path.write_text(json.dumps(replies), encoding="utf-8")
+
+    def run(self, *args, **kwargs):
+        return sparks("agent", "spawn", *args, cwd=self.cwd, timeout=60, **kwargs)
+
+    def plan(self, *args):
+        result = self.run(*args, "--dry-run")
+        assert (result.returncode, result.stderr) == (0, ""), result.stderr
+        assert result.stdout.count("\n") == 1
+        return json.loads(result.stdout)
+
+    @property
+    def calls(self):
+        if not self.log.exists():
+            return []
+        return [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+
+    def herdr_calls(self):
+        return [call for call in self.calls if call[0] == "herdr"]
+
+
+@pytest.fixture
+def fake_spawn(tmp_path, monkeypatch):
+    if os.name != "posix":
+        pytest.skip("fake executables use a POSIX shebang")
+    return FakeSpawn(tmp_path, monkeypatch)
+
+
+def persona(table="reviewer", **keys):
+    body = {"role": "Reviews", "model_type": "fast", "model": "claude-opus-5", "effort": "high", **keys}
+    lines = [f"{key} = {json.dumps(value)}" for key, value in body.items() if value is not None]
+    return f"[{table}]\n" + "\n".join(lines) + "\n"
+
+
+def test_spawn_dry_run_finds_the_parent_config_and_builds_the_pi_command(fake_spawn):
+    fake_spawn.personas(persona(provider="anthropic", system_prompt="Review only. Don't edit."))
+    plan = fake_spawn.plan("reviewer")
+    assert set(plan) == {
+        "agent", "config", "model_types", "cwd", "model_type", "chain", "chosen", "command", "timeout_ms",
+    }
+    assert plan["command"] == [
+        "pi", "--provider", "anthropic", "--model", "claude-opus-5", "--thinking", "high",
+        *tail("reviewer", "Review only. Don't edit."),
+    ]
+    assert Path(plan["config"]) == fake_spawn.config
+    assert plan["model_types"] == [str(ROOT / "defaults" / "model-types.toml")]
+    assert Path(plan["cwd"]).resolve() == fake_spawn.cwd.resolve()
+    assert (plan["model_type"], plan["chosen"], plan["timeout_ms"]) == ("fast", 0, 30000)
+    assert plan["chain"][0]["type"] == "persona" and plan["chain"][0]["command"] == plan["command"]
+    assert re.fullmatch(r"reviewer-[0-9a-f]{4}", plan["agent"]) and AGENT_NAME.fullmatch(plan["agent"])
+    assert fake_spawn.calls == [["pi", "--list-models"]]
+
+
+def test_spawn_injected_prompt_tells_the_agent_to_read_and_verify_against_sparks():
+    prompt = sparks_prompt("implementer")
+    assert "implementer persona" in prompt
+    assert "read the sparks.json in that directory and in each parent directory" in prompt
+    assert "load the repository-root sparks.json and the sparks.json of every directory that holds a changed file" in prompt
+    assert "Write a task-scoped verification skill file just in time" in prompt
+    assert ".sparks/verify/<task>.md" in prompt
+    assert "Then run that procedure" in prompt
+    assert "explicit handoff" in prompt
+    assert not cli.CONTROL.search(prompt)
+
+
+@pytest.mark.parametrize(("effort", "thinking"), [
+    ("none", "off"), ("minimal", "minimal"), ("low", "low"), ("medium", "medium"), ("high", "high"),
+    ("xhigh", "xhigh"), ("extra high", "xhigh"), ("Extra-High", "xhigh"), ("extrahigh", "xhigh"), ("max", "max"),
+])
+def test_spawn_effort_maps_to_a_pi_thinking_level(fake_spawn, effort, thinking):
+    fake_spawn.personas(persona(effort=effort))
+    command = fake_spawn.plan("reviewer")["command"]
+    assert command[command.index("--thinking") + 1] == thinking
+
+
+def test_spawn_provider_comes_from_pi_when_one_serves_the_model_and_is_required_when_several_do(fake_spawn):
+    fake_spawn.personas(persona(model="gpt-5.5"))
+    result = fake_spawn.run("reviewer", "--dry-run")
+    assert_rejected(result, "more than one pi provider serves gpt-5.5; set provider to one of: openai, openai-codex")
+    fake_spawn.personas(persona(model="gpt-5.5", provider="openai-codex"))
+    assert fake_spawn.plan("reviewer")["command"][1:5] == ["--provider", "openai-codex", "--model", "gpt-5.5"]
+    fake_spawn.personas(persona())
+    assert fake_spawn.plan("reviewer")["command"][1:3] == ["--provider", "anthropic"]
+
+
+@pytest.mark.parametrize(("keys", "message"), [
+    ({"effort": "ultra"}, "pi has no ultra thinking level"),
+    ({"effort": "fastest"}, "unknown effort"),
+    ({"model_type": None}, "model_type must be specified"),
+    ({"model_type": "slow"}, "unknown model_type slow; types: powerful, value, fast"),
+    ({"effort": None}, "effort must be specified with model"),
+    ({"model": None}, "effort is set without model"),
+    ({"model": None, "effort": None, "provider": "anthropic"}, "provider is set without model"),
+    ({"role": None}, "role must be specified"),
+    ({"model": "claude-opus-5:high"}, "model must not include effort"),
+    ({"model": "claude-opus-5-fast"}, "model must not include speed"),
+    ({"speed": "fast"}, "personas have no speed"),
+    ({"temperature": "1"}, "unknown key"),
+    ({"agent": "claude"}, "only pi is supported"),
+    ({"provider": ""}, "provider is empty"),
+    ({"effort": 3}, "effort must be a string"),
+    ({"skills": "spark-verification"}, "skills must be a list of strings"),
+    ({"provider": "xai"}, "pi lists no xai/claude-opus-5; providers that serve it: anthropic"),
+    ({"model": "claude-opus-9"}, "no combo for model type fast is available: persona claude-opus-9: pi lists no"),
+    ({"model": "gpt-4o", "provider": "openai"}, "without thinking; set effort to none"),
+    ({"system_prompt": "two\nlines"}, "system_prompt must be one line"),
+    ({"system_prompt": "notes.md"}, "system_prompt names an existing path"),
+])
+def test_spawn_refuses_a_persona_pi_cannot_run_and_launches_nothing(fake_spawn, keys, message):
+    (fake_spawn.cwd / "notes.md").write_text("not a prompt\n", encoding="utf-8")
+    fake_spawn.personas(persona(**keys))
+    result = fake_spawn.run("reviewer")
+    assert_rejected(result, message)
+    assert fake_spawn.herdr_calls() == []
+
+
+def test_spawn_model_without_thinking_runs_at_effort_none(fake_spawn):
+    fake_spawn.personas(persona(model="gpt-4o", provider="openai", effort="none"))
+    command = fake_spawn.plan("reviewer")["command"]
+    assert command[1:7] == ["--provider", "openai", "--model", "gpt-4o", "--thinking", "off"]
+
+
+def test_spawn_unknown_type_lists_the_project_and_default_personas(fake_spawn):
+    fake_spawn.personas(persona() + persona("implementer"))
+    result = fake_spawn.run("writer")
+    assert_rejected(result, "no persona writer; personas: reviewer, implementer; "
+                            "plugin defaults: spec-writer, implementer, reviewer")
+    assert fake_spawn.calls == []
+
+
+@pytest.mark.parametrize(("text", "name", "message"), [
+    (None, "writer", "no persona writer: no .sparks/agents.toml in"),
+    ("[reviewer\n", "reviewer", "invalid TOML"),
+    (persona("Reviewer"), "Reviewer", "a persona name is a lowercase letter"),
+])
+def test_spawn_refuses_a_missing_or_broken_config(fake_spawn, text, name, message):
+    if text is None:
+        fake_spawn.config.unlink()
+    else:
+        fake_spawn.personas(text)
+    result = fake_spawn.run(name)
+    assert_rejected(result, message)
+    assert fake_spawn.calls == []
+
+
+def test_spawn_additional_flags_are_split_on_whitespace_and_appended(fake_spawn):
+    plan = fake_spawn.plan("--additional-flags", "--offline   --name 'two words'", "reviewer")
+    assert plan["command"][-4:] == ["--offline", "--name", "'two", "words'"]
+    assert fake_spawn.plan("reviewer", "--additional-flags", "--no-session")["command"][-1] == "--no-session"
+
+
+@pytest.mark.parametrize(("flags", "key"), [
+    ("--model gpt-5.5", "model"), ("--offline --model=gpt-5.5", "model"), ("--effort high", "effort"),
+    ("--speed fast", "model"), ("--provider openai", "provider"), ("--thinking=max", "effort"),
+    ("--system-prompt x", "system_prompt"), ("--append-system-prompt x", "system_prompt"),
+    ("--models opus:max", "model"), ("--offline --models=anthropic/*", "model"),
+    ("--tools read", "allowed_tools"), ("-t read", "allowed_tools"), ("--tools=read,bash", "allowed_tools"),
+    ("--no-tools", "allowed_tools"), ("-nt", "allowed_tools"), ("--no-builtin-tools", "allowed_tools"),
+    ("-nbt", "allowed_tools"), ("--exclude-tools write", "forbidden_tools"), ("-xt write", "forbidden_tools"),
+    ("--no-mcp", "allowed_mcp"), ("--skill ./x", "skills"), ("--no-skills", "skills"), ("-ns", "skills"),
+])
+def test_spawn_refuses_persona_flags_smuggled_into_additional_flags(fake_spawn, flags, key):
+    result = fake_spawn.run("reviewer", "--additional-flags", flags)
+    assert_rejected(result, f"is set by the persona in .sparks/agents.toml ({key})")
+    assert fake_spawn.calls == []
+
+
+@pytest.mark.parametrize(("flags", "reason"), [
+    ("-p hello", "print mode"), ("--print", "print mode"), ("--offline --print=hi", "print mode"),
+    ("--mode rpc", "without its interactive interface"), ("--mode=json", "without its interactive interface"),
+    ("--export out.html", "export a session and exit"), ("--list-models", "list models and exit"),
+    ("-h", "print its help and exit"), ("--help", "print its help and exit"),
+    ("-v", "print its version and exit"), ("--version", "print its version and exit"),
+    ("--api-key sk-secret", "would show the key"), ("--api-key=sk-secret", "would show the key"),
+    ("-e ./x.ts", "loads or disables pi extensions"), ("--extension=./x.ts", "loads or disables pi extensions"),
+    ("--no-extensions", "loads or disables pi extensions"), ("-ne", "loads or disables pi extensions"),
+])
+def test_spawn_refuses_additional_flags_that_end_the_interactive_launch_or_leak_a_key(fake_spawn, flags, reason):
+    result = fake_spawn.run("reviewer", "--additional-flags", flags)
+    flag = next(word for word in flags.split() if word.split("=")[0] in cli.REFUSED_FLAGS).split("=")[0]
+    assert_rejected(result, f"--additional-flags: {flag} is refused: it ")
+    assert reason in result.stderr
+    assert "sk-secret" not in result.stderr
+    assert fake_spawn.calls == []
+
+
+def test_spawn_passes_other_pi_flags_through(fake_spawn):
+    flags = "--offline --no-context-files --name probe --no-session"
+    assert fake_spawn.plan("reviewer", "--additional-flags", flags)["command"][-5:] == flags.split()
+
+
+@pytest.mark.parametrize("args", [
+    ["--timeout", "3"], ["--timeout", "3.0004"], ["--timeout", "3.0005"], ["--timeout", "300.0006"],
+    ["--timeout", "300.5"], ["--timeout", "nan"], ["--timeout", "inf"], ["--timeout", "soon"],
+    ["--additional-flags", "a", "--additional-flags", "b"], ["--prompt", "a", "--prompt", "b"],
+    ["--watch", "10"], ["--prompt", "go", "--watch", "3"], ["--prompt", "go", "--watch", "301"], [],
+])
+def test_spawn_usage_errors_exit_2_and_call_nothing(fake_spawn, args):
+    result = fake_spawn.run(*args, *(["reviewer"] if args else []))
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert result.stderr.startswith("usage: sparks agent spawn")
+    assert fake_spawn.calls == []
+
+
+@pytest.mark.parametrize("args", [
+    ["--additional-flag", "--offline"], ["--add=--offline"], ["--additional-flag=--offline"], ["--time", "9"],
+    ["--prom", "go"],
+])
+def test_spawn_refuses_abbreviated_options(fake_spawn, args):
+    """allow_abbrev=False: only full spellings are bound as one argument."""
+    result = fake_spawn.run(*args, "reviewer")
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "error: unrecognized arguments: " + args[0] in result.stderr
+    assert fake_spawn.calls == []
+
+
+@pytest.mark.parametrize(("seconds", "ms"), [
+    ("3.5", 3500), ("3.0006", 3001), ("300", 300000), ("300.0004", 300000), ("90", 90000),
+])
+def test_spawn_timeout_bounds_are_open_at_3_and_closed_at_300(fake_spawn, seconds, ms):
+    assert fake_spawn.plan("reviewer", "--timeout", seconds)["timeout_ms"] == ms
+
+
+def test_spawn_opens_a_tab_in_the_caller_directory_and_starts_pi_in_its_pane(fake_spawn, monkeypatch):
+    monkeypatch.setenv("HERDR_WORKSPACE_ID", "w1")
+    result = fake_spawn.run("reviewer", "--timeout", "45", "--additional-flags", "--offline")
+    assert (result.returncode, result.stderr) == (0, ""), result.stderr
+    out = json.loads(result.stdout)
+    assert set(out) == {"agent", "tab", "pane", "command", "model_type", "combo", "attempts"}
+    assert (out["tab"], out["pane"], out["model_type"]) == ("w1:t9", "w1:p9", "fast")
+    pi_args = ["--provider", "anthropic", "--model", "claude-opus-5", "--thinking", "high", *tail(), "--offline"]
+    assert out["command"] == ["pi", *pi_args]
+    combo = {"type": "persona", "provider": "anthropic", "model": "claude-opus-5", "effort": "high"}
+    assert out["combo"] == combo
+    assert out["attempts"] == [{**combo, "result": "started"}]
+    create, start = fake_spawn.herdr_calls()
+    assert create[:5] == ["herdr", "tab", "create", "--workspace", "w1"]
+    assert create[5] == "--cwd" and Path(create[6]).resolve() == fake_spawn.cwd.resolve()
+    assert create[7:] == ["--no-focus"]
+    assert start == [
+        "herdr", "agent", "start", out["agent"], "--kind", "pi", "--pane", "w1:p9",
+        "--timeout", "45000", "--", *pi_args,
+    ]
+
+
+def test_spawn_failed_start_closes_the_tab_and_reports_every_attempt(fake_spawn):
+    fake_spawn.replies(start_code=1)
+    result = fake_spawn.run("reviewer")
+    assert result.returncode == 1
+    assert "timed out" in result.stderr and "pane says why" in result.stderr
+    assert "sparks: persona anthropic/claude-opus-5 high: start failed (exit 1); tab w1:t9 closed" in result.stderr
+    assert result.stderr.endswith("sparks: every combo for model type fast failed\n")
+    out = json.loads(result.stdout)
+    assert out["agent"] is None and out["left_open"] == []
+    results = [attempt["result"] for attempt in out["attempts"]]
+    assert results[0] == "start failed (exit 1)"
+    assert all(item.startswith("unavailable: pi lists no ") for item in results[1:]) and len(results) == 8
+    assert [call[1:3] for call in fake_spawn.herdr_calls()] == [
+        ["tab", "create"], ["agent", "start"], ["pane", "read"], ["tab", "close"],
+    ]
+
+
+def test_spawn_a_tab_herdr_cannot_close_is_reported_left_open(fake_spawn):
+    fake_spawn.replies(start_code=1, overrides={"herdr tab close": {"code": 1, "stderr": "nope\n"}})
+    result = fake_spawn.run("reviewer")
+    assert result.returncode == 1
+    assert "herdr tab close failed: nope; tab w1:t9 is left open" in result.stderr
+    assert result.stderr.endswith("cleanup failed; stopping fallback\n")
+    assert json.loads(result.stdout)["left_open"] == ["w1:t9"]
+
+
+def test_spawn_start_that_times_out_in_sparks_closes_the_tab(monkeypatch, capsys):
+    """The SpawnError branch: herdr agent start overran sparks' own subprocess timeout."""
+    def fake_run(argv, timeout, what):
+        if argv[1:3] == ["tab", "create"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps(CREATED), "")
+        if argv[1:3] == ["agent", "start"]:
+            assert timeout == 4 + cli.CALL_TIMEOUT
+            raise cli.SpawnError(f"{what}: timed out after {timeout:g} seconds")
+        if argv[1:3] == ["tab", "close"]:
+            return subprocess.CompletedProcess(argv, 0, CLOSED["stdout"], "")
+        return subprocess.CompletedProcess(argv, 0, "pane says why\n", "")
+
+    monkeypatch.setattr(cli, "_run", fake_run)
+    monkeypatch.delenv("HERDR_WORKSPACE_ID", raising=False)
+    step = {"type": "t", "provider": "p", "model": "m", "effort": "low", "available": True,
+            "command": ["pi", "--offline"]}
+    plan = {"agent": "reviewer-0a1b", "cwd": "/x", "timeout_ms": 4000, "model_type": "t",
+            "chosen": 0, "chain": [step]}
+    code, out = cli.spawn(plan)
+    assert code == 1
+    assert out["attempts"][0]["result"] == "start failed (herdr agent start: timed out after 34 seconds)"
+    assert (out["attempts"][0]["tab"], out["attempts"][0]["closed"]) == ("w1:t9", True)
+    err = capsys.readouterr().err
+    assert "pane says why" in err and "tab w1:t9 closed" in err
+
+
+@pytest.mark.parametrize(("created", "left"), [
+    ({"tab": {"tab_id": "w1:t9"}}, "; tab w1:t9 is left open"),
+    ({"tab": {"tab_id": "w1:t9"}, "root_pane": {}}, "; tab w1:t9 is left open"),
+    ({"root_pane": {"pane_id": "w1:p9"}}, ""),
+])
+def test_spawn_unusable_tab_create_reply_names_the_tab_left_open(fake_spawn, created, left):
+    fake_spawn.replies(overrides={"herdr tab create": {"stdout": json.dumps({"result": created})}})
+    result = fake_spawn.run("reviewer")
+    assert_rejected(result, f"herdr tab create did not return a tab and its root pane{left}\n")
+    assert [call[1:3] for call in fake_spawn.herdr_calls()] == [["tab", "create"]]
+
+
+@pytest.mark.parametrize("reply", [
+    {"code": 1, "stderr": '{"error":{"message":"no such workspace"}}\n'},
+    {"code": 0, "stdout": '{"error":{"message":"no such workspace"}}\n'},
+])
+def test_spawn_failed_tab_create_starts_nothing(fake_spawn, reply):
+    fake_spawn.replies(overrides={"herdr tab create": reply})
+    result = fake_spawn.run("reviewer")
+    assert_rejected(result, "herdr tab create failed: no such workspace")
+    assert [call[1:3] for call in fake_spawn.herdr_calls()] == [["tab", "create"]]
+
+
+@pytest.mark.parametrize(("reply", "message"), [
+    ({"code": 2, "stderr": "pi: config broken\n"}, "pi --list-models failed: pi: config broken"),
+    ({"code": 1}, "pi --list-models failed: exit 1"),
+    ({"stdout": "No models available\n"}, "no combo for model type fast is available"),
+])
+def test_spawn_pi_list_models_failure_is_refused_and_launches_nothing(fake_spawn, reply, message):
+    fake_spawn.replies(overrides={"pi --list-models": reply})
+    assert_rejected(fake_spawn.run("reviewer"), message)
+    assert fake_spawn.herdr_calls() == []
+
+
+def test_spawn_finds_the_config_in_the_cwd_itself(fake_spawn):
+    nearer = fake_spawn.cwd / ".sparks" / "agents.toml"
+    fake_spawn.personas(persona(effort="low"), path=nearer)
+    plan = fake_spawn.plan("reviewer")
+    assert Path(plan["config"]) == nearer
+    assert plan["command"][5:7] == ["--thinking", "low"]
+
+
+@pytest.mark.parametrize("git", ["directory", "file"])
+def test_spawn_lookup_stops_at_the_git_top_level(fake_spawn, git):
+    outer = fake_spawn.project.parent / ".sparks" / "agents.toml"
+    fake_spawn.personas(persona("probe"), path=outer)
+    fake_spawn.config.unlink()
+    if git == "file":  # a worktree or submodule has a .git file
+        (fake_spawn.project / ".git").rmdir()
+        (fake_spawn.project / ".git").write_text("gitdir: elsewhere\n", encoding="utf-8")
+    result = fake_spawn.run("probe", "--dry-run")
+    assert_rejected(result, f"or a parent up to the git top level {fake_spawn.project},")
+    assert fake_spawn.calls == []
+    # Outside a repository the walk goes on, and finds the outer file.
+    git_path = fake_spawn.project / ".git"
+    git_path.rmdir() if git_path.is_dir() else git_path.unlink()
+    assert Path(fake_spawn.plan("probe")["config"]) == outer
+
+
+@pytest.mark.parametrize("target", ["file", "directory"])
+@pytest.mark.parametrize("mode", [0o020, 0o002])
+def test_spawn_refuses_a_config_group_or_others_can_write(fake_spawn, target, mode):
+    item = fake_spawn.config if target == "file" else fake_spawn.config.parent
+    item.chmod(item.stat().st_mode | mode)
+    result = fake_spawn.run("reviewer", "--dry-run")
+    assert_rejected(result, f"{item}: writable by group or others; refusing it (chmod go-w {item})")
+    assert fake_spawn.calls == []
+
+
+def test_spawn_refuses_a_model_types_file_group_or_others_can_write(fake_spawn):
+    fake_spawn.model_types('[fast]\n[[fast.combos]]\nprovider = "xai"\nmodel = "grok-4.7"\neffort = "low"\n')
+    fake_spawn.types.chmod(0o666)
+    result = fake_spawn.run("reviewer", "--dry-run")
+    assert_rejected(result, f"{fake_spawn.types}: writable by group or others")
+    assert fake_spawn.calls == []
+
+
+@pytest.mark.skipif(not hasattr(os, "getuid"), reason="needs POSIX uids")
+@pytest.mark.parametrize("target", ["file", "directory"])
+def test_spawn_refuses_a_config_another_user_owns(tmp_path, monkeypatch, target):
+    config = tmp_path / ".sparks" / "agents.toml"
+    config.parent.mkdir(mode=0o755)
+    config.write_text(persona(), encoding="utf-8")
+    config.chmod(0o644)
+    other = os.getuid() + 1
+    owner = config if target == "file" else config.parent
+    real_stat = Path.stat
+
+    def fake_stat(self, *args, **kwargs):
+        info = real_stat(self, *args, **kwargs)
+        if self == owner:
+            return os.stat_result((info.st_mode, info.st_ino, info.st_dev, info.st_nlink, other, *info[5:]))
+        return info
+
+    monkeypatch.setattr(Path, "stat", fake_stat)
+    with pytest.raises(cli.SpawnError, match=re.escape(f"{owner}: owned by uid {other}, not you")):
+        cli._nearest(tmp_path, cli.AGENTS_FILE)
+
+
+def test_spawn_name_key_must_equal_the_table_name(fake_spawn):
+    fake_spawn.personas(persona(name="reviewer"))
+    assert fake_spawn.plan("reviewer")["command"][0] == "pi"
+    fake_spawn.personas(persona(name="critic"))
+    fake_spawn.log.unlink()
+    result = fake_spawn.run("reviewer")
+    assert_rejected(result, "[reviewer]: name is critic; it must equal the table name reviewer")
+    assert fake_spawn.calls == []
+
+
+def test_spawn_golden_example_has_no_personas_and_its_commented_examples_run(fake_spawn):
+    golden = (ROOT / "defaults" / "agent.toml").read_text(encoding="utf-8")
+    fake_spawn.personas(golden)
+    fake_spawn.replies(table=TYPES_TABLE)
+    assert_rejected(fake_spawn.run("critic"), "no persona critic; personas: none")
+    examples = golden.split("# Examples (uncomment to use):\n", 1)[1]
+    fake_spawn.personas("".join(re.sub(r"^# ?", "", line) for line in examples.splitlines(True)))
+    personas = tomllib.loads(fake_spawn.config.read_text(encoding="utf-8"))
+    assert personas, "the golden example lost its commented examples"
+    for name in personas:
+        assert fake_spawn.plan(name)["command"][0] == "pi"
+
+
+# persona fields: tools, MCP, skills, directories
+
+RESOURCE_TOOLS = "list_mcp_resources,list_mcp_resource_templates,read_mcp_resource"
+
+
+def test_spawn_maps_tools_mcp_skills_and_directories_to_pi_flags(fake_spawn):
+    fake_spawn.personas(persona(
+        allowed_tools=["read", "bash", "grep"], forbidden_tools=["write"],
+        allowed_mcp=["radius", "dev-docs"], forbidden_mcp=["mcp__radius__delete*"],
+        skills=["spark-verification", "sparks-postcall"], allowed_directories=["src", "docs/api"],
+        system_prompt="Be brief.",
+    ))
+    command = fake_spawn.plan("reviewer")["command"]
+    assert command[7:] == [
+        "--tools", "read,bash,grep,mcp__radius__*,mcp__dev_docs__*",
+        "--exclude-tools", "write,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource,mcp__radius__delete*",
+        "--no-skills",
+        "--skill", str(ROOT / "skills" / "spark-verification"),
+        "--skill", str(ROOT / "skills" / "sparks-postcall"),
+        "-e", EXTENSION,
+        "--append-system-prompt", sparks_prompt(),
+        "--append-system-prompt", cli.DIRECTORIES_PROMPT.format(directories="src, docs/api"),
+        "--append-system-prompt", "Be brief.",
+    ]
+
+
+@pytest.mark.parametrize(("keys", "flags"), [
+    ({}, []),
+    ({"allowed_tools": []}, ["--no-tools"]),
+    ({"allowed_tools": [], "allowed_mcp": ["radius"]}, ["--tools", "mcp__radius__*", "--exclude-tools", RESOURCE_TOOLS]),
+    ({"allowed_mcp": []}, ["--exclude-tools", RESOURCE_TOOLS, "--no-mcp"]),
+    ({"allowed_tools": ["read", "edit"], "allowed_mcp": []}, ["--tools", "read,edit", "--exclude-tools", RESOURCE_TOOLS, "--no-mcp"]),
+    ({"forbidden_mcp": ["radius"]}, ["--exclude-tools", RESOURCE_TOOLS + ",mcp__radius__*"]),
+    ({"skills": []}, ["--no-skills"]),
+])
+def test_spawn_list_fields_map_to_the_documented_pi_flag(fake_spawn, keys, flags):
+    fake_spawn.personas(persona(**keys))
+    command = fake_spawn.plan("reviewer")["command"]
+    assert command[7:command.index("-e")] == flags
+
+
+@pytest.mark.parametrize(("keys", "message"), [
+    ({"allowed_tools": ["+read"]}, "allowed_tools entry +read is not a tool name or * pattern"),
+    ({"allowed_tools": ["read,bash"]}, "is not a tool name or * pattern"),
+    ({"forbidden_tools": ["mcp__radius__x"]}, "is an MCP tool; put MCP servers in forbidden_mcp"),
+    ({"allowed_tools": ["read"], "forbidden_tools": ["read"]}, "tool read is both allowed and forbidden"),
+    ({"allowed_tools": ["read"], "allowed_mcp": ["a"], "forbidden_mcp": ["a"]}, "is both allowed and forbidden"),
+    ({"allowed_mcp": ["radius"]}, "allowed_mcp needs allowed_tools"),
+    ({"allowed_tools": ["read"], "allowed_mcp": ["bad server"]}, "is not an MCP server name"),
+    ({"allowed_tools": ["read", "read"]}, "allowed_tools lists read twice"),
+    ({"allowed_tools": [""]}, "allowed_tools has an empty entry"),
+    ({"allowed_tools": [1]}, "allowed_tools must be a list of strings"),
+    ({"skills": ["no-such-skill"]}, "no skill no-such-skill in .pi/skills or .agents/skills"),
+    ({"skills": ["../escape"]}, "skills entry ../escape is not a skill name"),
+    ({"skills": ["spark-verification"], "allowed_tools": ["grep"]}, "skills need the read or bash tool"),
+    ({"skills": ["spark-verification"], "forbidden_tools": ["read", "bash"]}, "skills need the read or bash tool"),
+    ({"allowed_directories": []}, "allowed_directories is empty"),
+    ({"allowed_directories": ["src\tx"]}, "has a control character"),
+])
+def test_spawn_refuses_bad_tool_mcp_skill_and_directory_fields(fake_spawn, keys, message):
+    fake_spawn.personas(persona(**keys))
+    assert_rejected(fake_spawn.run("reviewer", "--dry-run"), message)
+    assert fake_spawn.herdr_calls() == []
+
+
+def test_spawn_skill_lookup_prefers_the_project_then_the_plugin_then_the_user(fake_spawn, monkeypatch):
+    def make(root, name):
+        (root / name).mkdir(parents=True)
+        (root / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: x\n---\n", encoding="utf-8")
+        return root / name
+
+    project = make(fake_spawn.project / ".agents" / "skills", "spark-verification")
+    nearer = make(fake_spawn.cwd / ".pi" / "skills", "only-here")
+    agent_dir = fake_spawn.home / "agent-dir"
+    user = make(agent_dir / "skills", "mine")
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(agent_dir))
+    agents = make(fake_spawn.home / ".agents" / "skills", "shared")
+    fake_spawn.personas(persona(skills=["spark-verification", "only-here", "sparks-postcall", "mine", "shared"]))
+    command = fake_spawn.plan("reviewer")["command"]
+    skills = [command[i + 1] for i, word in enumerate(command) if word == "--skill"]
+    assert skills == [str(project), str(nearer), str(ROOT / "skills" / "sparks-postcall"), str(user), str(agents)]
+
+
+# model types
+
+
+TYPES = """\
+[cheap]
+description = "a user's own type"
+fallback = ["sharp"]
+
+[[cheap.combos]]
+provider = "xai"
+model = "grok-9"
+effort = "low"
+service_tier = "flex"
+
+[[cheap.combos]]
+provider = "xai"
+model = "grok-4.7"
+effort = "low"
+service_tier = "flex"
+
+[sharp]
+fallback = ["cheap"]
+
+[[sharp.combos]]
+provider = "anthropic"
+model = "claude-sonnet-5-5"
+effort = "high"
+
+[[sharp.combos]]
+provider = "xai"
+model = "grok-4.7"
+effort = "low"
+"""
+
+
+def test_spawn_custom_model_type_resolves_its_chain_and_skips_an_unavailable_model(fake_spawn):
+    fake_spawn.model_types(TYPES)
+    fake_spawn.replies(table=TYPES_TABLE)
+    fake_spawn.personas(persona(model_type="cheap", model=None, effort=None))
+    plan = fake_spawn.plan("reviewer")
+    assert plan["model_types"] == [str(ROOT / "defaults" / "model-types.toml"), str(fake_spawn.types)]
+    shown = [(s["type"], s["provider"], s["model"], s["effort"], s["available"]) for s in plan["chain"]]
+    assert shown == [  # cheap's combos, then sharp's; the repeated grok-4.7 low is dropped
+        ("cheap", "xai", "grok-9", "low", False),
+        ("cheap", "xai", "grok-4.7", "low", True),
+        ("sharp", "anthropic", "claude-sonnet-5-5", "high", True),
+    ]
+    assert plan["chain"][0]["reason"] == "pi lists no xai/grok-9"
+    assert plan["chosen"] == 1
+    assert plan["chain"][1]["service_tier"] == "flex"
+    assert plan["command"][1:7] == ["--provider", "xai", "--model", "grok-4.7", "--thinking", "low"]
+    assert "flex" not in plan["command"]  # pi has no service tier flag
+
+
+@pytest.mark.parametrize(("provider", "model", "own_effort", "bucket_effort"), [
+    (None, "claude-sonnet-5-5", "high", "high"),
+    ("ANTHROPIC", "CLAUDE-SONNET-5-5", "HIGH", "high"),
+    (None, "claude-sonnet-5-5", "Extra  High", "xhigh"),
+    ("Anthropic", "claude-sonnet-5-5", "extra-high", "extrahigh"),
+])
+def test_spawn_deduplicates_resolved_invocations(fake_spawn, provider, model, own_effort, bucket_effort):
+    fake_spawn.model_types(TYPES.replace('effort = "high"', f'effort = "{bucket_effort}"'))
+    fake_spawn.personas(persona(model_type="sharp", provider=provider, model=model, effort=own_effort))
+    fake_spawn.replies(table=TYPES_TABLE, overrides={"herdr agent start": [START_FAILED, {"stdout": "{}"}]})
+    plan = fake_spawn.plan("reviewer")
+    assert [(s["type"], s["model"], s["available"]) for s in plan["chain"]] == [
+        ("persona", "claude-sonnet-5-5", True), ("sharp", "grok-4.7", True),
+        ("cheap", "grok-9", False),
+    ]
+    assert plan["chosen"] == 0
+    assert plan["chain"][0]["effort"] == own_effort  # first occurrence wins
+    result = fake_spawn.run("reviewer")
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert [a["model"] for a in out["attempts"]] == ["claude-sonnet-5-5", "grok-4.7"]
+    starts = [c for c in fake_spawn.herdr_calls() if c[1:3] == ["agent", "start"]]
+    assert len(starts) == 2
+    assert sum(c[1:3] == ["tab", "close"] for c in fake_spawn.herdr_calls()) == 1
+
+
+def test_spawn_project_type_replaces_the_shipped_type_of_that_name(fake_spawn):
+    fake_spawn.model_types('[fast]\n[[fast.combos]]\nprovider = "xai"\nmodel = "grok-4.7"\neffort = "minimal"\n')
+    fake_spawn.personas(persona(model="claude-opus-9"))
+    fake_spawn.replies(table=TYPES_TABLE)
+    plan = fake_spawn.plan("reviewer")
+    assert [(s["type"], s["model"]) for s in plan["chain"]] == [("persona", "claude-opus-9"), ("fast", "grok-4.7")]
+    assert plan["command"][1:7] == ["--provider", "xai", "--model", "grok-4.7", "--thinking", "minimal"]
+
+
+def test_spawn_default_model_types_fall_back_in_escalation_order(fake_spawn):
+    fake_spawn.personas(persona(model_type="fast", model=None, effort=None))
+    fake_spawn.replies(table=TYPES_TABLE)
+    plan = fake_spawn.plan("reviewer")
+    types = list(dict.fromkeys(step["type"] for step in plan["chain"]))
+    assert types == ["fast", "value", "powerful"]
+    chosen = plan["chain"][plan["chosen"]]
+    assert (chosen["type"], chosen["model"]) == ("value", "claude-sonnet-5-5")  # the first one fake pi lists
+
+
+@pytest.mark.parametrize(("text", "message"), [
+    ("[fast]\n", "combos must be one or more [[fast.combos]] tables"),
+    ('[fast]\nfallback = ["nope"]\n[[fast.combos]]\nprovider = "x"\nmodel = "m"\neffort = "low"\n',
+     "fallback names unknown model type nope"),
+    ('[fast]\nfallback = ["fast"]\n[[fast.combos]]\nprovider = "x"\nmodel = "m"\neffort = "low"\n',
+     "fallback names the type itself"),
+    ('[fast]\n[[fast.combos]]\nprovider = "x"\nmodel = "m"\n', "combo 1: effort must be specified"),
+    ('[fast]\n[[fast.combos]]\nprovider = "x"\nmodel = "m"\neffort = "ultra"\n', "pi has no ultra thinking level"),
+    ('[fast]\n[[fast.combos]]\nprovider = "x"\nmodel = "m:high"\neffort = "low"\n', "must not include effort"),
+    ('[fast]\n[[fast.combos]]\nprovider = "x"\nmodel = "m"\neffort = "low"\nspeed = "fast"\n', "unknown key speed"),
+    ('[fast]\n[[fast.combos]]\nprovider = "x"\nmodel = "m"\neffort = "low"\nservice_tier = ""\n',
+     "service_tier must be a non-empty string"),
+    ('[Fast]\n[[Fast.combos]]\nprovider = "x"\nmodel = "m"\neffort = "low"\n', "a model type name is"),
+    ('fast = "x"\n', "fast must be a table"),
+    ('[fast]\ncolor = "red"\n', "unknown key color"),
+])
+def test_spawn_refuses_a_bad_model_types_file(fake_spawn, text, message):
+    fake_spawn.model_types(text)
+    assert_rejected(fake_spawn.run("reviewer", "--dry-run"), message)
+    assert fake_spawn.calls == []
+
+
+def test_spawn_falls_back_to_the_next_combo_when_herdr_agent_start_fails(fake_spawn):
+    fake_spawn.model_types(TYPES)
+    fake_spawn.personas(persona(model_type="sharp"))
+    fake_spawn.replies(table=TYPES_TABLE, overrides={"herdr agent start": [START_FAILED, START_FAILED, {"stdout": "{}"}]})
+    result = fake_spawn.run("reviewer")
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert [a["result"] for a in out["attempts"]] == ["start failed (exit 1)", "start failed (exit 1)", "started"]
+    assert [(a["type"], a["model"]) for a in out["attempts"]] == [
+        ("persona", "claude-opus-5"), ("sharp", "claude-sonnet-5-5"), ("sharp", "grok-4.7"),
+    ]
+    assert out["combo"]["model"] == "grok-4.7" and out["command"][4] == "grok-4.7"
+    assert [call[1:3] for call in fake_spawn.herdr_calls()] == [
+        ["tab", "create"], ["agent", "start"], ["pane", "read"], ["tab", "close"],
+    ] * 2 + [["tab", "create"], ["agent", "start"]]
+    names = [call[3] for call in fake_spawn.herdr_calls() if call[1:3] == ["agent", "start"]]
+    assert len(set(names)) == 3 and all(re.fullmatch(r"reviewer-[0-9a-f]{4}", n) for n in names)
+    assert result.stderr.count("trying the next combo") == 2
+
+
+def test_spawn_api_error_after_the_prompt_closes_the_tab_and_falls_back(fake_spawn):
+    fake_spawn.model_types(TYPES)
+    fake_spawn.personas(persona(model_type="sharp"))
+    fake_spawn.replies(table=TYPES_TABLE, overrides={"herdr agent get": [
+        agent_info("idle", {"sparks_run": "0:ready"}),
+        agent_info("idle"),  # real herdr may publish idle before sparks metadata
+        agent_info("blocked", {"sparks_run": "1:error", "sparks_api_error": "401 invalid x-api-key"}),
+        agent_info("idle", {"sparks_run": "0:ready"}), agent_info("idle", {"sparks_run": "1:ok"}),
+    ]})
+    result = fake_spawn.run("reviewer", "--prompt", "/skill:spark-verification PR 91", "--watch", "20")
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert [a["result"] for a in out["attempts"]] == [
+        "api error (401 invalid x-api-key, status blocked)", "started",
+    ]
+    assert out["combo"]["model"] == "claude-sonnet-5-5"
+    prompts = [call for call in fake_spawn.herdr_calls() if call[1:3] == ["agent", "prompt"]]
+    assert prompts[0] == [
+        "herdr", "agent", "prompt", "w1:p9", "/skill:spark-verification PR 91", "--wait",
+        "--until", "idle", "--until", "blocked", "--until", "done",
+    ]
+    assert len(prompts) == 2
+    assert [call[1:3] for call in fake_spawn.herdr_calls()].count(["tab", "close"]) == 1
+
+
+def test_spawn_blocked_without_the_api_error_token_is_an_approval_wait_not_a_failure(fake_spawn):
+    fake_spawn.replies(overrides={"herdr agent get": [
+        agent_info("idle", {"sparks_run": "0:ready"}), agent_info("blocked", {"sparks_run": "1:running"}),
+    ]})
+    result = fake_spawn.run("reviewer", "--prompt", "go", "--watch", "3.1")
+    assert result.returncode == 1, result.stderr
+    assert "approval block" in json.loads(result.stdout)["attempts"][-1]["result"]
+    assert ["tab", "close"] not in [call[1:3] for call in fake_spawn.herdr_calls()]
+
+
+def test_spawn_api_error_on_every_combo_exits_1_with_every_attempt(fake_spawn):
+    fake_spawn.replies(overrides={"herdr agent get": [agent_info("idle", {"sparks_run": "0:ready"}),
+        agent_info("blocked", {"sparks_run": "1:error", "sparks_api_error": "overloaded"})]})
+    result = fake_spawn.run("reviewer", "--prompt", "go")
+    assert result.returncode == 1
+    out = json.loads(result.stdout)
+    assert out["attempts"][0]["result"] == "api error (overloaded, status blocked)"
+    assert out["attempts"][0]["closed"] is True
+    assert result.stderr.endswith("sparks: every combo for model type fast failed\n")
+
+
+def test_spawn_a_prompt_herdr_refuses_is_not_a_provider_api_error(fake_spawn):
+    fake_spawn.model_types(TYPES)
+    fake_spawn.personas(persona(model_type="sharp"))
+    fake_spawn.replies(table=TYPES_TABLE, overrides={"herdr agent prompt": [
+        {"code": 1, "stderr": "agent exited\n"}, {"stdout": "{}"},
+    ]})
+    result = fake_spawn.run("reviewer", "--prompt", "go")
+    assert result.returncode == 1, result.stderr
+    out = json.loads(result.stdout)
+    assert result.returncode == 1
+    assert len(out["attempts"]) == 1
+    assert "prompt submission failed" in out["attempts"][0]["result"]
+    assert out["left_open"] == ["w1:t9"]
+    assert ["tab", "close"] not in [c[1:3] for c in fake_spawn.herdr_calls()]
+
+
+def test_spawn_without_a_prompt_never_prompts_or_watches(fake_spawn):
+    fake_spawn.replies(overrides={"herdr agent get": agent_info("blocked", {"sparks_api_error": "x"})})
+    assert fake_spawn.run("reviewer").returncode == 0
+    assert [call[1:3] for call in fake_spawn.herdr_calls()] == [["tab", "create"], ["agent", "start"]]
+
+
+def test_spawn_dry_run_shows_the_prompt_and_watch_window(fake_spawn):
+    plan = fake_spawn.plan("reviewer", "--prompt", "--start here", "--watch", "12")
+    assert (plan["prompt"], plan["watch_ms"]) == ("--start here", 12000)
+    assert fake_spawn.plan("reviewer", "--prompt", "go")["watch_ms"] == 60000
+    result = fake_spawn.run("reviewer", "--dry-run", "--prompt", "two\nlines")
+    assert_rejected(result, "--prompt must be one non-empty line")
+
+
+# the shipped personas and model types
+
+
+DEFAULTS_TABLE = """\
+provider      model                context  max-out  thinking  images
+anthropic     claude-opus-5-5      1M       128K     yes       yes
+anthropic     claude-sonnet-5-5    1M       128K     yes       yes
+anthropic     claude-haiku-5-5     1M       128K     yes       yes
+openai-codex  gpt-6.1-sol          272K     128K     yes       yes
+openai-codex  gpt-5.3-codex-spark  128K     128K     yes       no
+xai           grok-4.7             500K     500K     yes       yes
+xai           grok-4.3             1M       30K      yes       yes
+"""
+
+
+def test_spawn_default_personas_plan_without_a_project_file(fake_spawn):
+    fake_spawn.config.unlink()
+    fake_spawn.replies(table=DEFAULTS_TABLE)
+    plans = {name: fake_spawn.plan(name) for name in ("spec-writer", "implementer", "reviewer")}
+    for name, plan in plans.items():
+        assert Path(plan["config"]) == ROOT / "defaults" / "agents.toml"
+        assert all(step["available"] for step in plan["chain"]), plan["chain"]
+        assert len(plan["chain"]) == 7  # every shipped combo, once
+        assert sparks_prompt(name) in plan["command"]
+    reviewer = plans["reviewer"]["command"]
+    assert plans["reviewer"]["model_type"] == "powerful"
+    assert reviewer[1:7] == ["--provider", "anthropic", "--model", "claude-opus-5-5", "--thinking", "high"]
+    assert reviewer[7:12] == [
+        "--exclude-tools", "edit,write", "--no-skills", "--skill", str(ROOT / "skills" / "spark-verification"),
+    ]
+    writer = plans["spec-writer"]["command"]
+    assert writer[7:10] == ["--no-skills", "--skill", str(ROOT / "skills" / "sparks-postcall")]
+    implementer = plans["implementer"]["command"]
+    assert plans["implementer"]["model_type"] == "value"
+    assert implementer[1:7] == ["--provider", "anthropic", "--model", "claude-sonnet-5-5", "--thinking", "medium"]
+    assert implementer[7:10] == ["--no-skills", "-e", EXTENSION]
+
+
+def test_spawn_project_persona_replaces_the_default_of_that_name(fake_spawn):
+    fake_spawn.personas(persona("implementer", effort="low"))
+    plan = fake_spawn.plan("implementer")
+    assert Path(plan["config"]) == fake_spawn.config
+    assert plan["command"][1:7] == ["--provider", "anthropic", "--model", "claude-opus-5", "--thinking", "low"]
+
+
+def test_spawn_shipped_model_types_are_value_powerful_and_fast():
+    types, files = cli._model_types(Path(os.sep))
+    assert files == [ROOT / "defaults" / "model-types.toml"]
+    assert {"value", "powerful", "fast"} <= set(types)
+    for value in types.values():
+        assert value["combos"] and value["fallback"]
+
+
+# the api-error pi extension
+
+
+
+
+@pytest.mark.parametrize("policy", [{"allowed_mcp": ["docs"]}, {"forbidden_mcp": ["private"]}, {"allowed_mcp": []}])
+@pytest.mark.parametrize("pattern", ["*", "read*", "?", "m*?"])
+def test_spawn_selective_mcp_refuses_tool_wildcards(fake_spawn, policy, pattern):
+    fake_spawn.personas(persona(allowed_tools=["read", pattern], **policy))
+    assert_rejected(fake_spawn.run("reviewer", "--dry-run"), "patterns containing * or ? bypass selective MCP")
+    assert fake_spawn.herdr_calls() == []
+
+
+def installed_pi_core():
+    # Read-only managed install, never change the user's pi resources.
+    install = INSTALLED_PI_DIR / "install"
+    current = install / "current-version"
+    if not current.is_file():
+        pytest.skip("needs the managed pi install for its real tool-selection oracle")
+    core = install / "releases" / current.read_text().strip() / "node_modules/@earendil-works/pi-coding-agent/dist/core"
+    if not (core / "agent-session.js").is_file() or shutil.which("node") is None:
+        pytest.skip("needs node and installed pi's AgentSession")
+    return core
+
+
+@pytest.mark.parametrize("policy", ["allowed", "forbidden"])
+@pytest.mark.parametrize("opt_in", [False, True])
+def test_spawn_mcp_policy_with_real_pi_selection(fake_spawn, tmp_path, policy, opt_in):
+    core = installed_pi_core()
+    allowed = ["read", "codemode"] + (["read_mcp_resource"] if opt_in else [])
+    fake_spawn.personas(persona(allowed_tools=allowed, **{f"{policy}_mcp": ["docs" if policy == "allowed" else "private"]}))
+    command = fake_spawn.plan("reviewer")["command"]
+    driver = tmp_path / "selection.mjs"
+    driver.write_text(r'''
+const [core, raw] = process.argv.slice(2);
+const {AgentSession} = await import(`${core}/agent-session.js`);
+const {createToolNameMatcher} = await import(`${core}/mcp-servers.js`);
+const args = JSON.parse(raw);
+const names = args[args.indexOf("--tools") + 1].split(",");
+const excluded = args[args.indexOf("--exclude-tools") + 1].split(",");
+const session = Object.create(AgentSession.prototype);
+session._allowedTools = createToolNameMatcher(names);
+session._excludedTools = createToolNameMatcher(excluded);
+session._allowlistFiltersMcp = names.some(n => n.startsWith("mcp__"));
+const tools = ["read", "codemode", "mcp__docs__lookup", "mcp__private__delete",
+  "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"];
+console.log(JSON.stringify(Object.fromEntries(tools.map(n => [n, session._isAllowedTool(n)]))));
+''')
+    result = subprocess.run([shutil.which("node"), str(driver), core.as_uri(), json.dumps(command)],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    actual = json.loads(result.stdout)
+    assert actual == {"read": True, "codemode": True, "mcp__docs__lookup": True,
+                      "mcp__private__delete": False, "list_mcp_resources": False,
+                      "list_mcp_resource_templates": False, "read_mcp_resource": opt_in}
+
+
+@pytest.mark.parametrize("stream", ["stderr", "stdout"])
+def test_spawn_rejected_approval_prompt_preserves_tab_without_fallback(fake_spawn, stream):
+    fake_spawn.model_types(TYPES)
+    fake_spawn.personas(persona(model_type="sharp"))
+    fake_spawn.replies(table=TYPES_TABLE, overrides={
+        "herdr agent prompt": [{"code": 1, stream: json.dumps({"error": {
+            "code": "agent_blocked", "message": "waiting for approval"}})}, {"stdout": "{}"}],
+        "herdr agent get": [agent_info("idle", {"sparks_run": "0:ready"}), agent_info("blocked")],
+    })
+    result = fake_spawn.run("reviewer", "--prompt", "go")
+    assert result.returncode == 1
+    out = json.loads(result.stdout)
+    assert "approval block (agent_blocked)" in out["attempts"][0]["result"]
+    assert out["left_open"] == ["w1:t9"]
+    assert len(out["attempts"]) == 1
+    calls = [c[1:3] for c in fake_spawn.herdr_calls()]
+    assert calls.count(["agent", "start"]) == 1 and ["tab", "close"] not in calls
+
+
+def test_spawn_failed_close_stops_before_an_available_successful_combo(fake_spawn):
+    fake_spawn.model_types(TYPES)
+    fake_spawn.personas(persona(model_type="sharp"))
+    fake_spawn.replies(table=TYPES_TABLE, overrides={
+        "herdr agent start": [START_FAILED, {"stdout": "{}"}],
+        "herdr tab close": {"code": 1, "stderr": "nope"},
+    })
+    result = fake_spawn.run("reviewer")
+    assert result.returncode == 1
+    out = json.loads(result.stdout)
+    assert out["left_open"] == ["w1:t9"] and len(out["attempts"]) == 1
+    assert out["attempts"][0]["closed"] is False
+    assert sum(c[1:3] == ["agent", "start"] for c in fake_spawn.herdr_calls()) == 1
+
+
+@pytest.mark.parametrize("info", [agent_info("idle"), agent_info("idle", {"sparks_run": "0:ok"}),
+    agent_info("working", {"sparks_run": "1:running"}),
+    agent_info("idle", {"sparks_run": "1:error"}), {"code": 1, "stderr": "metadata unavailable"}])
+def test_spawn_unknown_or_stale_outcome_is_not_silent_success(fake_spawn, info):
+    fake_spawn.replies(overrides={"herdr agent get": [agent_info("idle", {"sparks_run": "0:ready"}), info]})
+    result = fake_spawn.run("reviewer", "--prompt", "go", "--watch", "3.1")
+    assert result.returncode == 1
+    out = json.loads(result.stdout)
+    assert "failure to confirm" in out["attempts"][0]["result"]
+    assert out["left_open"] == ["w1:t9"]
+    assert ["tab", "close"] not in [c[1:3] for c in fake_spawn.herdr_calls()]
+
+
+def test_spawn_delayed_baseline_and_stale_previous_error_are_reconciled(fake_spawn):
+    fake_spawn.replies(overrides={"herdr agent get": [
+        agent_info("idle"),
+        agent_info("idle", {"sparks_run": "7:ok"}),
+        agent_info("blocked", {"sparks_run": "7:error", "sparks_api_error": "stale"}),
+        agent_info("idle", {"sparks_run": "8:ok"}),
+    ]})
+    result = fake_spawn.run("reviewer", "--prompt", "go")
+    assert result.returncode == 0, result.stderr
+    assert len(json.loads(result.stdout)["attempts"]) == 1
+    assert sum(c[1:3] == ["agent", "get"] for c in fake_spawn.herdr_calls()) == 4
+    assert ["tab", "close"] not in [c[1:3] for c in fake_spawn.herdr_calls()]
+
+
+def test_spawn_approval_without_even_a_baseline_preserves_the_tab(fake_spawn):
+    fake_spawn.replies(overrides={"herdr agent get": agent_info("blocked")})
+    result = fake_spawn.run("reviewer", "--prompt", "go")
+    assert result.returncode == 1
+    out = json.loads(result.stdout)
+    assert "approval block" in out["attempts"][0]["result"]
+    assert out["left_open"] == ["w1:t9"]
+    assert ["tab", "close"] not in [c[1:3] for c in fake_spawn.herdr_calls()]
+
+
+EXTENSION_DRIVER = r"""
+import net from "node:net";
+import {EventEmitter} from "node:events";
+const [extension, herdr, socketPath, order, fail] = process.argv.slice(2);
+let tokens = {};
+const history = [];
+const emitted = [];
+const received = [];
+const server = net.createServer(socket => {
+  let buffer = "";
+  socket.on("data", data => {
+    buffer += data.toString();
+    if (!buffer.includes("\n")) return;
+    const request = JSON.parse(buffer.split("\n")[0]);
+    received.push(request);
+    const metadata = request.method === "pane.report_metadata";
+    setTimeout(() => {
+      if (metadata && !fail) Object.assign(tokens, request.params.tokens);
+      history.push([metadata ? "metadata" : request.params.state, {...tokens}]);
+      socket.write(JSON.stringify({id: request.id, ...(metadata && fail ?
+        {error: {message: "synthetic metadata rejection"}} : {result: {type: "ok"}})}) + "\n");
+    }, metadata ? 150 : 0);
+  });
+});
+await new Promise(resolve => server.listen(socketPath, resolve));
+process.env.HERDR_ENV = "1";
+process.env.HERDR_SOCKET_PATH = socketPath;
+process.env.HERDR_PANE_ID = "w1:p9";
+const handlers = {};
+const events = new EventEmitter();
+events.on("herdr:blocked", data => emitted.push([data, {...tokens}]));
+const pi = {on: (name, handler) => (handlers[name] ??= []).push(handler), events};
+const module = await import(extension);
+const managed = await import(herdr);
+for (const init of order === "herdr-first" ? [managed.default, module.default] : [module.default, managed.default]) init(pi);
+const ctx = {mode: "tui", isIdle: () => idle};
+let idle = true;
+const fire = async (name, event = {}) => {for (const h of handlers[name] ?? []) await h(event, ctx);};
+await fire("session_start");
+idle = false;
+await fire("agent_start");
+await fire("message_end", {message: {role: "assistant", stopReason: "error", provider: "custom",
+  errorMessage: "HTTP 401 Incorrect API key provided: demo-secret-1234"}});
+idle = true;
+await fire("agent_settled");
+await new Promise(resolve => setTimeout(resolve, 60));
+const afterError = {tokens: {...tokens}, emitted: emitted.slice(), history: history.slice()};
+idle = false;
+await fire("agent_start");
+await fire("message_end", {message: {role: "assistant", stopReason: "stop"}});
+idle = true;
+await fire("agent_settled");
+await new Promise(resolve => setTimeout(resolve, 60));
+const afterSuccess = {...tokens};
+idle = false;
+await fire("agent_start");
+idle = true;
+await fire("agent_settled", {aborted: true});
+const redacted = [
+  "Incorrect API key provided: demo-secret-1234", "token=x", "Bearer a", "Authorization: Basic xy",
+  'custom provider: key="q"', "x-api-key: z", "token: short value with spaces", "sk-abc", "A".repeat(40),
+  "overloaded " + "!".repeat(600), "token: 401", 'access_token="short-secret"', 'apiKey: v'
+].map(errorMessage => module.apiError({role: "assistant", stopReason: "error", provider: "custom", errorMessage}));
+server.close();
+console.log(JSON.stringify({afterError, afterSuccess, tokens, emitted, received, redacted}));
+"""
+
+
+@pytest.mark.parametrize("order", ["herdr-first", "sparks-first"])
+@pytest.mark.parametrize("fail", [False, True])
+def test_extensions_delayed_metadata_both_load_orders_and_delivery_failure(tmp_path, order, fail):
+    node = shutil.which("node")
+    source = INSTALLED_PI_DIR / "extensions" / "herdr-agent-state.ts"
+    if node is None or not source.is_file():
+        pytest.skip("needs node and the real installed herdr extension (read-only source)")
+    before = source.read_bytes()
+    # Copy the real, unmodified managed extension; never edit the installed file.
+    managed = tmp_path / "herdr-agent-state.ts"
+    managed.write_bytes(before)
+    managed.chmod(0o444)
+    driver = tmp_path / "driver.mjs"
+    driver.write_text(EXTENSION_DRIVER, encoding="utf-8")
+    done = subprocess.run([node, str(driver), EXTENSION, str(managed), str(tmp_path / "herdr.sock"),
+                           order, "fail" if fail else ""], capture_output=True, text=True, timeout=60)
+    assert source.read_bytes() == before
+    assert done.returncode == 0, done.stderr
+    report = json.loads(done.stdout.strip().splitlines()[-1])
+    if fail:
+        assert report["emitted"] == []
+        assert report["tokens"] == {}
+        assert "completion metadata delivery failed; outcome unconfirmed" in done.stderr
+    else:
+        after = report["afterError"]
+        assert after["tokens"]["sparks_run"] == "1:error"
+        assert "HTTP 401 api error" in after["tokens"]["sparks_api_error"]
+        assert "demo-secret-1234" not in json.dumps(report)
+        # At blocked emission metadata has already been delivered/acknowledged.
+        [(event, tokens)] = after["emitted"]
+        assert event["active"] is True and tokens["sparks_run"] == "1:error"
+        blocked = next(i for i, row in enumerate(after["history"]) if row[0] == "blocked")
+        terminal = next(i for i, row in enumerate(after["history"]) if row[1].get("sparks_run") == "1:error")
+        assert terminal < blocked
+        if order == "herdr-first":
+            assert any(state == "idle" and tokens.get("sparks_run") == "1:running" for state, tokens in after["history"])
+        assert report["afterSuccess"] == {"sparks_run": "2:ok", "sparks_api_error": None}
+        assert report["tokens"] == {"sparks_run": "3:aborted", "sparks_api_error": None}
+        assert report["emitted"][1][0] == {"active": False}
+    assert report["redacted"] == ["custom api error: model request failed"] * 13
+
+
+# Drive the installed AgentSession's logical-run/retry lifecycle with the real
+# Agent (and thus runAgentLoop/runAgentLoopContinue), synthetic streams only.
+LOGICAL_RUN_DRIVER = r"""
+import net from "node:net";
+import {EventEmitter} from "node:events";
+const [extension, core, socketPath, scenario, diagnostic] = process.argv.slice(2);
+const {AgentSession} = await import(core + "/agent-session.js");
+const packages = new URL("../../../", core + "/");
+const {Agent} = await import(new URL("pi-agent-core/dist/agent.js", packages));
+const {AssistantMessageEventStream} = await import(new URL("pi-ai/dist/utils/event-stream.js", packages));
+let tokens = {};
+const markers = [], labels = [], lifecycle = [], retryEvents = [];
+const server = net.createServer(socket => {
+  let buffer = "";
+  socket.on("data", data => {
+    buffer += data.toString();
+    if (!buffer.includes("\n")) return;
+    const request = JSON.parse(buffer.split("\n")[0]);
+    Object.assign(tokens, request.params.tokens);
+    markers.push(tokens.sparks_run);
+    socket.write(JSON.stringify({id: request.id, result: {type: "ok"}}) + "\n");
+  });
+});
+await new Promise(resolve => server.listen(socketPath, resolve));
+process.env.HERDR_ENV = "1";
+process.env.HERDR_SOCKET_PATH = socketPath;
+process.env.HERDR_PANE_ID = "w1:p9";
+const handlers = {};
+const events = new EventEmitter();
+events.on("herdr:blocked", data => labels.push(data));
+const fire = async event => {
+  lifecycle.push(event.type);
+  for (const h of handlers[event.type] ?? []) await h(event, {mode: "tui"});
+};
+const module = await import(extension);
+module.default({on: (name, h) => (handlers[name] ??= []).push(h), events});
+await fire({type: "session_start"});
+const model = {id: "synthetic", provider: "custom", api: "synthetic", contextWindow: 100000};
+let calls = 0, nextRun = false;
+const agent = new Agent({initialState: {model, tools: []}, streamFn: () => {
+  calls++;
+  const error = !nextRun && (scenario === "retry-exhausted" || (scenario === "retry-success" && calls === 1));
+  const message = {role: "assistant", provider: "custom", model: "synthetic", api: "synthetic",
+    content: [], stopReason: error ? "error" : "stop", timestamp: Date.now(),
+    usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+      cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0}},
+    ...(error ? {errorMessage: diagnostic} : {})};
+  const stream = new AssistantMessageEventStream();
+  stream.push(error ? {type: "error", reason: "error", error: message} : {type: "done", reason: "stop", message});
+  return stream;
+}});
+const session = Object.create(AgentSession.prototype);
+// Replace persistence/prompt construction and compaction with an in-memory
+// transcript. _startRun, _handlePostAgentRun, _prepareRetry and settlement are
+// installed pi code, not a hand-paired start/settled event simulation.
+Object.assign(session, {agent, _retryAttempt: 0, _lastAssistantToolResults: [],
+  _pendingToolNames: new Set(), _deferredSettledActions: [],
+  settingsManager: {getRetrySettings: () => ({enabled: true, maxRetries: 1, baseDelayMs: 0, maxDelayMs: 0})},
+  _extensionRunner: {emit: fire},
+  _prepareRun: async () => [{role: "user", content: [{type: "text", text: "synthetic task"}], timestamp: Date.now()}],
+  _recordSelection: () => {}, _flushPendingBashMessages: () => {}, _flushPendingCustomMessages: () => {},
+  _resolveIdleWaitIfIdle: () => {}, _modelForMessage: () => model,
+  _checkCompaction: async () => false,
+  _omitRecoveryAttempt: message => {agent.state.messages = agent.state.messages.filter(m => m !== message);},
+  _emit: event => {if (event.type.startsWith("auto_retry")) retryEvents.push({type: event.type, success: event.success});},
+  _runBeforeSettleBoundary: async () => false,
+});
+let queued = false;
+agent.subscribe(async event => {
+  await fire(event);
+  if (event.type === "message_end" && event.message.role === "assistant") {
+    session._lastAssistantMessage = event.message;
+    if (event.message.stopReason !== "error" && session._retryAttempt > 0) {
+      session._emit({type: "auto_retry_end", success: true});
+      session._retryAttempt = 0;
+    }
+  }
+  // Work queued at agent_end needs another low-level loop before settlement,
+  // just like recovery or an agent_before_settle continuation.
+  if (event.type === "agent_end" && scenario === "continuation" && !queued) {
+    queued = true;
+    agent.followUp({role: "user", content: [{type: "text", text: "continue"}], timestamp: Date.now()});
+  }
+});
+await session._startRun({});
+const terminal = {...tokens}, firstMarkers = markers.slice(), firstLifecycle = lifecycle.slice();
+nextRun = true;
+await session._startRun({});
+server.close();
+console.log(JSON.stringify({terminal, firstMarkers, firstLifecycle, markers, labels, tokens, calls, retryEvents}));
+"""
+
+
+SECRET_DIAGNOSTICS = [
+    "HTTP 503 demo-secret-1234 is not a valid API key",
+    "HTTP 503 Authentication failed for credential: demo-secret-1234",
+    "HTTP 503 password demo-secret-1234 was rejected",
+    "HTTP 503 client-secret demo-secret-1234 was rejected",
+    "HTTP 503 Unable to reach https://user:demo-secret-1234@example.invalid/v1",
+    "HTTP 503 Unlabelled diagnostic demo-secret-1234",  # no heuristic needed
+]
+
+
+@pytest.mark.parametrize(("scenario", "diagnostic"), [
+    ("retry-success", SECRET_DIAGNOSTICS[0]),
+    ("continuation", "unused"),
+    *[("retry-exhausted", text) for text in SECRET_DIAGNOSTICS],
+])
+def test_spawn_actual_pi_logical_run_and_safe_error_fallback(fake_spawn, tmp_path, scenario, diagnostic):
+    core = installed_pi_core()
+    driver = tmp_path / "logical-run.mjs"
+    driver.write_text(LOGICAL_RUN_DRIVER, encoding="utf-8")
+    done = subprocess.run([shutil.which("node"), str(driver), EXTENSION, core.as_uri(),
+                           str(tmp_path / "logical.sock"), scenario, diagnostic],
+                          capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    report = json.loads(done.stdout.strip().splitlines()[-1])
+    error = scenario == "retry-exhausted"
+    outcome = "error" if error else "ok"
+    assert report["firstMarkers"] == ["0:ready", "1:running", "1:running", f"1:{outcome}"]
+    assert report["markers"][-2:] == ["2:running", "2:ok"]
+    assert report["calls"] == 3
+    assert report["firstLifecycle"].count("agent_start") == 2
+    assert report["firstLifecycle"].count("agent_end") == 2
+    assert report["firstLifecycle"].count("agent_settled") == 1
+    assert report["tokens"] == {"sparks_run": "2:ok", "sparks_api_error": None}
+    if error:
+        safe = "custom HTTP 503 api error: model request failed"
+        assert report["terminal"]["sparks_api_error"] == safe
+        assert report["labels"] == [{"active": True, "label": "sparks:api-error: " + safe}, {"active": False}]
+        assert report["retryEvents"][-1] == {"type": "auto_retry_end", "success": False}
+    else:
+        assert report["terminal"]["sparks_api_error"] is None
+        assert report["labels"] == []  # transient diagnostics never leave pi
+    fake_spawn.model_types(TYPES)
+    fake_spawn.personas(persona(model_type="sharp"))
+    infos = [agent_info("idle", {"sparks_run": "0:ready"}),
+             agent_info("blocked" if error else "idle", report["terminal"])]
+    if error:
+        infos += [agent_info("idle", {"sparks_run": "0:ready"}), agent_info("idle", {"sparks_run": "1:ok"})]
+    fake_spawn.replies(table=TYPES_TABLE, overrides={"herdr agent get": infos})
+    result = fake_spawn.run("reviewer", "--prompt", "go", "--watch", "20")
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert len(out["attempts"]) == (2 if error else 1)
+    assert out["attempts"][-1]["result"] == "started"
+    assert sum(c[1:3] == ["tab", "close"] for c in fake_spawn.herdr_calls()) == int(error)
+    if error:
+        assert out["combo"]["model"] == "claude-sonnet-5-5"
+        assert safe in out["attempts"][0]["result"] and safe in result.stderr
+    # Covers shared tokens, blocked labels, extension streams, CLI stderr and
+    # attempts JSON. The original diagnostic is never an orchestration payload.
+    assert "demo-secret-1234" not in done.stdout + done.stderr + result.stdout + result.stderr
 
 
 # format and ids

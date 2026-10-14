@@ -5,3 +5,6 @@ __pycache__/
 sparks.json
 # the root file is the shared index
 !/sparks.json
+
+# task-scoped just-in-time verification procedures
+/.sparks/verify/
