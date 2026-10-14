@@ -182,7 +182,7 @@
   {
     "type": "s",
     "question": "What infrastructure problem is the sparks rewrite trying to solve by moving state off the GrokBot machines?",
-    "answer": "...if we can actually... outsource that to some... durable objects or even CloudFlare containers, we might be winners. But all of that... relies on airtight programmatic workflows that use... agents at certain junctures and steps of the way... to... ensure very compliant results to the Sparks methodology.",
-    "id": "9387ea36cbc0d89f"
+    "answer": "\"...if we can actually... outsource [the state persistence and network load] to some... durable objects or even CloudFlare containers, we might be winners. But all of that... relies on airtight programmatic workflows that use... agents at certain junctures and steps of the way... to... ensure very compliant results to the Sparks methodology.\"",
+    "id": "7c6747e7c76c306a"
   }
 ]
