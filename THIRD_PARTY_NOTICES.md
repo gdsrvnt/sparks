@@ -11,7 +11,7 @@ These skills are copied unchanged from the `pstack` plugin in [cursor/plugins](h
 
 They're licensed under the MIT License, Copyright (c) 2026 Lauren Tan. The full license text is in [`skills/LICENSE-poteto`](skills/LICENSE-poteto).
 
-`skills/why/` is modified in this plugin: passages that reason about intention were moved word for word out of `skills/why/references/investigator-prompt.md` and `skills/why/references/sources/{datadog,databricks,linear,notion,slack}.md` into [`docs/uncovering-intention.md`](docs/uncovering-intention.md), and each removal that left a gap now has a one-line pointer to that doc; `skills/why/SKILL.md` Step 3 pastes the relevant sections of the doc into each investigator prompt. Any re-copy of `skills/why/` from upstream must redo this move. The moved text is still poteto's, under the same MIT License, Copyright (c) 2026 Lauren Tan.
+`skills/why/` is modified in this plugin: passages that reason about intention were moved word for word out of `skills/why/references/investigator-prompt.md` and the Datadog, Databricks, Linear, Notion and Slack files in `skills/why/references/sources/` into [`docs/uncovering-intention.md`](docs/uncovering-intention.md), and each removal that left a gap now has a one-line pointer to that doc; `skills/why/SKILL.md` Step 3 pastes the relevant sections of the doc into each investigator prompt. Any re-copy of `skills/why/` from upstream must redo this move. The moved text is still poteto's, under the same MIT License, Copyright (c) 2026 Lauren Tan.
 
 These skills are bundled from the same plugin at the same commit. Every file is copied unchanged, and each folder also holds pstack's `LICENSE` (MIT License, Copyright (c) 2026 Lauren Tan) next to its `SKILL.md`:
 
@@ -37,6 +37,14 @@ It's licensed under the MIT License, Copyright (c) 2026 HumanLayer. The full lic
 `skills/sparks-postcall/` adapts the `to-spec` skill from [mattpocock/skills](https://github.com/mattpocock/skills/tree/49dd158d1076134a641b33efb035946536778336/skills/engineering/to-spec) at commit `49dd158d1076134a641b33efb035946536778336`. It keeps the rule to synthesize instead of interviewing and the core of the spec template: Problem Statement, Solution, User Stories, Implementation Decisions, Testing Decisions, and Out of Scope. It adds Source, Relay divergences, Requirements, and Open Questions, and drops Further Notes, the user-story example, and the prototype-snippet exception. It drops the step that checks test seams with the user and the publish to an issue tracker with the `ready-for-agent` label. It reads a call transcript instead of the live conversation, grounds requirements in verbatim quotes, and adds verification, gap implementation, review, and merge steps. The skill's `agents/` folder is not copied. The folder also holds his `LICENSE` next to its `SKILL.md`.
 
 All three are licensed under the MIT License, Copyright (c) 2026 Matt Pocock. The full license text is in [`skills/LICENSE-mattpocock`](skills/LICENSE-mattpocock).
+
+## implement-spec integration spec
+
+[`docs/specs/implement-spec.md`](docs/specs/implement-spec.md) uses the headings and synthesis method of Matt Pocock's `to-spec` skill, read from [mattpocock/skills](https://github.com/mattpocock/skills/tree/49dd158d1076134a641b33efb035946536778336/skills/engineering/to-spec) at commit `49dd158d1076134a641b33efb035946536778336`, without installing it. The upstream MIT license is [`skills/LICENSE-mattpocock`](skills/LICENSE-mattpocock), Copyright (c) 2026 Matt Pocock. The spec records sparks-specific decisions; the skill itself is not copied here.
+
+## BMad Method
+
+[`skills/LICENSE-bmad`](skills/LICENSE-bmad) is the MIT license from [bmad-code-org/BMAD-METHOD](https://github.com/bmad-code-org/BMAD-METHOD) at commit `8f0d50e1817fdd8fcf05a20c524218222d13cd8d`, Copyright (c) 2025 BMad Code, LLC. `CONTRIBUTORS.md` and `TRADEMARK.md` are not copied. No BMad skill or workflow is copied. The license is here so later spec work can credit BMad. Brian Madison ([@bmadcode](https://github.com/bmadcode)) created BMad Method.
 
 ## subagent skill by Mario Zechner (@badlogic)
 
