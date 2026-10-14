@@ -1075,9 +1075,12 @@ Launch one agent persona from .sparks/agents.toml as a pi session in a new
 herdr tab, in the current directory.
 
 <type> is a persona name: a table in the nearest .sparks/agents.toml, looked
-up in the current directory, then in each parent up to the filesystem root.
-The golden example defaults/agent.toml defines the file. Every persona runs in
-pi; its agent key may only be "pi", the default.
+up in the current directory, then in each parent up to the git top level (the
+first directory with a .git), or up to the filesystem root outside a git
+repository. The file and its .sparks directory must be owned by you and not
+writable by group or others. The golden example defaults/agent.toml defines
+the file. Every persona runs in pi; its agent key may only be "pi", the
+default. An optional name key must equal the table name.
 
 The persona becomes this pi command:
   pi --provider <provider> --model <model> --thinking <level>
@@ -1090,13 +1093,19 @@ for a model pi lists without thinking. Without a provider, the command refuses
 and lists the providers when more than one pi provider serves the model.
 system_prompt is one line with no tabs, because herdr cannot type a control
 character into the shell, and must not name an existing path, because pi
-would read that file instead of the text.
+would read that file instead of the text. A persona with a system_prompt
+turns off pi's APPEND_SYSTEM.md (.pi/APPEND_SYSTEM.md or
+~/.pi/agent/APPEND_SYSTEM.md): pi reads that file only when no
+--append-system-prompt is given. pi's SYSTEM.md is not affected.
 
 --additional-flags takes one string. It is split on whitespace and each word
 is appended to the pi command. Quotes and backslashes are ordinary
-characters. It is refused if it holds --model, --provider, --thinking,
---effort, --speed, --system-prompt, or --append-system-prompt: the persona
-sets those.
+characters. It is refused if it holds a flag the persona sets (--model,
+--models, --provider, --thinking, --effort, --speed, --system-prompt,
+--append-system-prompt), a flag that stops pi running interactively or makes
+it exit (-p, --print, --mode, --export, --list-models, -h, --help, -v,
+--version), or --api-key, which would show the key in the command, the pane,
+and the output. Other pi flags pass through.
 
 Launch: herdr tab create --cwd <cwd> --no-focus (with --workspace
 $HERDR_WORKSPACE_ID when set), then herdr agent start <name> --kind pi
@@ -1104,21 +1113,23 @@ $HERDR_WORKSPACE_ID when set), then herdr agent start <name> --kind pi
 a hyphen, and four random hex digits. Success prints one JSON line with
 agent, tab, pane, and command. If the start fails, the tab stays open,
 herdr's output and the pane's last 120 lines go to stderr, and the JSON line
-still names the tab and pane.
+still names the tab and pane. If herdr creates the tab but its reply has no
+tab and root pane, the error names any tab it reported, which stays open.
 
 --dry-run runs pi --list-models but no herdr command, and prints the plan as
 one JSON line with agent, config, cwd, command, and timeout_ms."""
 
 SPAWN_EPILOG = """\
 exit status: 0 launched, or plan printed with --dry-run; 1 refused and nothing
-launched, or herdr did not start the agent; 2 usage error, including a
---timeout that is not more than 3 and at most 300 seconds."""
+launched, or herdr did not start the agent (the message names any tab left
+open); 2 usage error, including a --timeout that is not more than 3000 and at
+most 300000 milliseconds once rounded to whole milliseconds."""
 
 AGENTS_FILE = Path(".sparks") / "agents.toml"
 GOLDEN_AGENTS = "defaults/agent.toml"
 # herdr agent names match [a-z][a-z0-9_-]{0,31}; spawn appends "-" and 4 hex digits.
 PERSONA_NAME = re.compile(r"[a-z][a-z0-9_-]{0,26}")
-PERSONA_KEYS = ("role", "model", "effort", "provider", "system_prompt", "agent")
+PERSONA_KEYS = ("name", "role", "model", "effort", "provider", "system_prompt", "agent")
 PI_THINKING = {
     "none": "off", "minimal": "minimal", "low": "low", "medium": "medium", "high": "high",
     "xhigh": "xhigh", "extra high": "xhigh", "extra-high": "xhigh", "extrahigh": "xhigh",
@@ -1129,27 +1140,50 @@ SPEED_WORDS = frozenset({"fast", "normal", "ultrafast"})
 # herdr refuses to type an argument with a control character (a newline, a tab)
 # into the pane's shell: "cannot be encoded safely for the target shell".
 CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# --models lets pi cycle (Ctrl+P) to other models, each with its own :thinking level.
 PERSONA_FLAGS = (
-    "--model", "--provider", "--thinking", "--effort", "--speed",
+    "--model", "--models", "--provider", "--thinking", "--effort", "--speed",
     "--system-prompt", "--append-system-prompt",
 )
-START_TIMEOUT = 30.0  # seconds; herdr agent start's own default
+# A denylist, so other pi flags pass through. Each of these breaks the launch:
+# pi is no longer an interactive session in the pane, or a secret is exposed.
+REFUSED_FLAGS = {
+    "-p": "runs pi in print mode, which sends the prompt to the model and exits",
+    "--print": "runs pi in print mode, which sends the prompt to the model and exits",
+    "--mode": "runs pi without its interactive interface",
+    "--export": "makes pi export a session and exit",
+    "--list-models": "makes pi list models and exit",
+    "-h": "makes pi print its help and exit",
+    "--help": "makes pi print its help and exit",
+    "-v": "makes pi print its version and exit",
+    "--version": "makes pi print its version and exit",
+    "--api-key": (
+        "would show the key in the command, the pane, and the output; "
+        "pi reads keys from the environment or its auth.json"
+    ),
+}
+START_TIMEOUT_MS = 30000  # herdr agent start's own default
 CALL_TIMEOUT = 30  # seconds for pi --list-models, herdr tab create, herdr pane read
 PANE_LINES = 120
 
 
 class SpawnError(Exception):
-    """A complete one-line diagnostic. Nothing was launched."""
+    """A complete one-line diagnostic. Nothing was launched, unless the message
+    names a herdr tab that was left open."""
 
 
-def _start_timeout(text: str) -> float:
+def _start_timeout(text: str) -> int:
+    """Seconds to the whole milliseconds herdr takes, checked as sent: 3000 < ms <= 300000."""
     try:
         seconds = float(text)
     except ValueError:
         raise argparse.ArgumentTypeError(f"not a number of seconds: {text!r}") from None
-    if not (math.isfinite(seconds) and 3 < seconds <= 300):
-        raise argparse.ArgumentTypeError("must be more than 3 and at most 300 seconds")
-    return seconds
+    ms = round(seconds * 1000) if math.isfinite(seconds) else None
+    if ms is None or not 3000 < ms <= 300000:
+        raise argparse.ArgumentTypeError(
+            "must be more than 3 and at most 300 seconds, rounded to whole milliseconds"
+        )
+    return ms
 
 
 class _Once(argparse.Action):
@@ -1171,15 +1205,41 @@ def _caller_cwd() -> str:
 
 
 def _agents_file(start: Path) -> Path:
-    """The nearest .sparks/agents.toml: start, then each parent up to the filesystem root."""
+    """The nearest .sparks/agents.toml: start, then each parent up to the git top level
+    (the first directory with a .git), or up to the filesystem root outside a repository."""
+    stop = None
     for directory in (start, *start.parents):
         candidate = directory / AGENTS_FILE
         if candidate.is_file():
+            _check_owner(candidate)
             return candidate
+        if (directory / ".git").exists():
+            stop = directory
+            break
+    scope = f"up to the git top level {_show(stop)}" if stop else "up to the filesystem root"
     raise SpawnError(
-        f"no {AGENTS_FILE} in {_show(start)} or any parent; "
+        f"no {AGENTS_FILE} in {_show(start)} or a parent {scope}; "
         f"the agent-personas skill creates one from {GOLDEN_AGENTS}"
     )
+
+
+def _check_owner(path: Path) -> None:
+    """Refuse personas another user wrote or could rewrite: the file and its .sparks directory
+    must be owned by the current uid and not writable by group or others."""
+    if not hasattr(os, "getuid"):  # Windows has no uid or POSIX mode bits
+        return
+    uid = os.getuid()
+    for item in (path.parent, path):
+        try:
+            info = item.stat()
+        except OSError as exc:
+            raise SpawnError(f"{_show(item)}: cannot read: {_why(exc)}") from exc
+        if info.st_uid != uid:
+            raise SpawnError(f"{_show(item)}: owned by uid {info.st_uid}, not you (uid {uid}); refusing its personas")
+        if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            raise SpawnError(
+                f"{_show(item)}: writable by group or others; refusing its personas (chmod go-w {_show(item)})"
+            )
 
 
 def _personas(path: Path) -> dict[str, object]:
@@ -1212,6 +1272,10 @@ def _persona(personas: dict[str, object], name: str, label: str) -> dict[str, st
             raise SpawnError(f"{where}: {key} must be a string")
         if not value.strip():
             raise SpawnError(f"{where}: {key} is empty; set it or leave it out")
+    if "name" in entry and entry["name"] != name:
+        raise SpawnError(
+            f"{where}: name is {_show(entry['name'])}; it must equal the table name {_show(name)}"
+        )
     for key in ("role", "model", "effort"):
         if key not in entry:
             raise SpawnError(f"{where}: {key} must be specified")
@@ -1243,12 +1307,15 @@ def _check_model(model: str, where: str) -> None:
 
 
 def _additional_words(raw: str | None) -> list[str]:
-    """Split on whitespace, like gstack spawn. Refuse a flag the persona sets."""
+    """Split on whitespace, like gstack spawn. Refuse a flag the persona sets, and a flag
+    that would break the interactive launch or expose a secret."""
     words = raw.split() if raw is not None else []
     for word in words:
         flag = word.split("=", 1)[0]
         if flag in PERSONA_FLAGS:
             raise SpawnError(f"--additional-flags: {flag} is set by the persona in {AGENTS_FILE}")
+        if flag in REFUSED_FLAGS:
+            raise SpawnError(f"--additional-flags: {flag} is refused: it {REFUSED_FLAGS[flag]}")
         if CONTROL.search(word):
             raise SpawnError("--additional-flags: herdr cannot type a control character into the shell")
     return words
@@ -1305,7 +1372,7 @@ def _pi_model(model: str, provider: str | None, where: str) -> dict[str, str]:
     )
 
 
-def spawn_plan(persona_name: str, additional: str | None, timeout: float) -> dict[str, object]:
+def spawn_plan(persona_name: str, additional: str | None, timeout_ms: int) -> dict[str, object]:
     """Everything a launch needs, checked. Calls pi --list-models, never herdr."""
     words = _additional_words(additional)
     cwd = _caller_cwd()
@@ -1337,7 +1404,7 @@ def spawn_plan(persona_name: str, additional: str | None, timeout: float) -> dic
         "config": str(path),
         "cwd": cwd,
         "command": ["pi", *args, *words],
-        "timeout_ms": round(timeout * 1000),
+        "timeout_ms": timeout_ms,
     }
 
 
@@ -1366,7 +1433,9 @@ def spawn(plan: dict[str, object]) -> tuple[int, dict[str, object]]:
         for part, key in ((created.get("tab"), "tab_id"), (created.get("root_pane"), "pane_id"))
     )
     if not (isinstance(tab, str) and tab and isinstance(pane, str) and pane):
-        raise SpawnError("herdr tab create did not return a tab and its root pane")
+        # herdr has created a tab by now; name it so the caller can close it.
+        left = f"; tab {_show(tab)} is left open" if isinstance(tab, str) and tab else ""
+        raise SpawnError(f"herdr tab create did not return a tab and its root pane{left}")
     out = {"agent": plan["agent"], "tab": tab, "pane": pane, "command": plan["command"]}
     start = [
         "herdr", "agent", "start", plan["agent"], "--kind", "pi", "--pane", pane,
@@ -1475,6 +1544,8 @@ def _parser() -> argparse.ArgumentParser:
         "spawn", help="launch a persona as a pi session in a new herdr tab",
         description=SPAWN_DESCRIPTION, epilog=SPAWN_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        # Only the exact --additional-flags spelling is bound as one argument.
+        allow_abbrev=False,
     )
     spawn_parser.add_argument("type", metavar="<type>", help="persona name in .sparks/agents.toml")
     spawn_parser.add_argument(
@@ -1482,7 +1553,7 @@ def _parser() -> argparse.ArgumentParser:
         help="pi flags appended to the command, split on whitespace; pass once",
     )
     spawn_parser.add_argument(
-        "--timeout", type=_start_timeout, default=START_TIMEOUT, metavar="<seconds>",
+        "--timeout", type=_start_timeout, default=START_TIMEOUT_MS, metavar="<seconds>",
         help="herdr agent start timeout, more than 3 and at most 300 (default: 30)",
     )
     spawn_parser.add_argument(

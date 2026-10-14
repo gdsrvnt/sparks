@@ -2635,7 +2635,9 @@ class FakeSpawn:
         self.project = directory / "project"
         self.cwd = self.project / "deep" / "er"
         self.cwd.mkdir(parents=True)
+        (self.project / ".git").mkdir()  # the lookup stops here
         (self.project / ".sparks").mkdir()
+        (self.project / ".sparks").chmod(0o755)
         self.config = self.project / ".sparks" / "agents.toml"
         monkeypatch.setenv("PATH", str(self.bin_dir) + os.pathsep + os.environ.get("PATH", ""))
         monkeypatch.setenv("SPARKS_TEST_SPAWN_LOG", str(self.log))
@@ -2644,10 +2646,15 @@ class FakeSpawn:
         self.replies(start_code=0)
         self.personas('[reviewer]\nrole = "Reviews"\nmodel = "claude-opus-5"\neffort = "high"\n')
 
-    def personas(self, text):
-        self.config.write_text(text, encoding="utf-8")
+    def personas(self, text, path=None):
+        path = path or self.config
+        path.parent.mkdir(exist_ok=True)
+        path.parent.chmod(0o755)
+        path.write_text(text, encoding="utf-8")
+        path.chmod(0o644)
 
-    def replies(self, start_code=0, table=PI_TABLE):
+    def replies(self, start_code=0, table=PI_TABLE, overrides=None):
+        """overrides: replies keyed by "<tool> <argv 1> <argv 2>", such as "herdr tab create"."""
         created = {"result": {"tab": {"tab_id": "w1:t9"}, "root_pane": {"pane_id": "w1:p9"}}}
         replies = {
             "pi --list-models " + model: {"stdout": table}
@@ -2660,6 +2667,7 @@ class FakeSpawn:
             "stderr": "" if start_code == 0 else '{"error":{"message":"timed out"}}\n',
         }
         replies["herdr pane read"] = {"stdout": "pane says why\n"}
+        replies.update(overrides or {})
         self.replies_path.write_text(json.dumps(replies), encoding="utf-8")
 
     def run(self, *args, **kwargs):
@@ -2792,7 +2800,8 @@ def test_spawn_additional_flags_are_split_on_whitespace_and_appended(fake_spawn)
 
 @pytest.mark.parametrize("flags", [
     "--model gpt-5.5", "--offline --model=gpt-5.5", "--effort high", "--speed fast", "--provider openai",
-    "--thinking=max", "--system-prompt x", "--append-system-prompt x",
+    "--thinking=max", "--system-prompt x", "--append-system-prompt x", "--models opus:max",
+    "--offline --models=anthropic/*",
 ])
 def test_spawn_refuses_persona_flags_smuggled_into_additional_flags(fake_spawn, flags):
     result = fake_spawn.run("reviewer", "--additional-flags", flags)
@@ -2800,8 +2809,31 @@ def test_spawn_refuses_persona_flags_smuggled_into_additional_flags(fake_spawn, 
     assert fake_spawn.calls == []
 
 
+@pytest.mark.parametrize(("flags", "reason"), [
+    ("-p hello", "print mode"), ("--print", "print mode"), ("--offline --print=hi", "print mode"),
+    ("--mode rpc", "without its interactive interface"), ("--mode=json", "without its interactive interface"),
+    ("--export out.html", "export a session and exit"), ("--list-models", "list models and exit"),
+    ("-h", "print its help and exit"), ("--help", "print its help and exit"),
+    ("-v", "print its version and exit"), ("--version", "print its version and exit"),
+    ("--api-key sk-secret", "would show the key"), ("--api-key=sk-secret", "would show the key"),
+])
+def test_spawn_refuses_additional_flags_that_end_the_interactive_launch_or_leak_a_key(fake_spawn, flags, reason):
+    result = fake_spawn.run("reviewer", "--additional-flags", flags)
+    flag = next(word for word in flags.split() if word.split("=")[0] in cli.REFUSED_FLAGS).split("=")[0]
+    assert_rejected(result, f"--additional-flags: {flag} is refused: it ")
+    assert reason in result.stderr
+    assert "sk-secret" not in result.stderr
+    assert fake_spawn.calls == []
+
+
+def test_spawn_passes_other_pi_flags_through(fake_spawn):
+    flags = "--offline --no-skills --no-context-files --tools read,grep --name probe --no-session"
+    assert fake_spawn.plan("reviewer", "--additional-flags", flags)["command"][7:] == flags.split()
+
+
 @pytest.mark.parametrize("args", [
-    ["--timeout", "3"], ["--timeout", "300.5"], ["--timeout", "nan"], ["--timeout", "soon"],
+    ["--timeout", "3"], ["--timeout", "3.0004"], ["--timeout", "3.0005"], ["--timeout", "300.0006"],
+    ["--timeout", "300.5"], ["--timeout", "nan"], ["--timeout", "inf"], ["--timeout", "soon"],
     ["--additional-flags", "a", "--additional-flags", "b"], [],
 ])
 def test_spawn_usage_errors_exit_2_and_call_nothing(fake_spawn, args):
@@ -2812,7 +2844,21 @@ def test_spawn_usage_errors_exit_2_and_call_nothing(fake_spawn, args):
     assert fake_spawn.calls == []
 
 
-@pytest.mark.parametrize(("seconds", "ms"), [("3.5", 3500), ("300", 300000), ("90", 90000)])
+@pytest.mark.parametrize("args", [
+    ["--additional-flag", "--offline"], ["--add=--offline"], ["--additional-flag=--offline"], ["--time", "9"],
+])
+def test_spawn_refuses_abbreviated_options(fake_spawn, args):
+    """allow_abbrev=False: only the full --additional-flags spelling is bound as one argument."""
+    result = fake_spawn.run(*args, "reviewer")
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "error: unrecognized arguments: " + args[0] in result.stderr
+    assert fake_spawn.calls == []
+
+
+@pytest.mark.parametrize(("seconds", "ms"), [
+    ("3.5", 3500), ("3.0006", 3001), ("300", 300000), ("300.0004", 300000), ("90", 90000),
+])
 def test_spawn_timeout_bounds_are_open_at_3_and_closed_at_300(fake_spawn, seconds, ms):
     assert fake_spawn.plan("reviewer", "--timeout", seconds)["timeout_ms"] == ms
 
@@ -2846,6 +2892,131 @@ def test_spawn_failed_start_reports_the_pane_and_leaves_the_tab(fake_spawn):
     assert [call[1:3] for call in fake_spawn.herdr_calls()] == [
         ["tab", "create"], ["agent", "start"], ["pane", "read"],
     ]
+
+
+def test_spawn_start_that_times_out_in_sparks_reports_the_pane_and_leaves_the_tab(monkeypatch, capsys):
+    """The SpawnError branch: herdr agent start overran sparks' own subprocess timeout."""
+    def fake_run(argv, timeout, what):
+        if argv[1:3] == ["tab", "create"]:
+            body = {"result": {"tab": {"tab_id": "w1:t9"}, "root_pane": {"pane_id": "w1:p9"}}}
+            return subprocess.CompletedProcess(argv, 0, json.dumps(body), "")
+        if argv[1:3] == ["agent", "start"]:
+            assert timeout == 4 + cli.CALL_TIMEOUT
+            raise cli.SpawnError(f"{what}: timed out after {timeout:g} seconds")
+        return subprocess.CompletedProcess(argv, 0, "pane says why\n", "")
+
+    monkeypatch.setattr(cli, "_run", fake_run)
+    monkeypatch.delenv("HERDR_WORKSPACE_ID", raising=False)
+    plan = {"agent": "reviewer-0a1b", "cwd": "/x", "command": ["pi", "--offline"], "timeout_ms": 4000}
+    code, out = cli.spawn(plan)
+    assert (code, out["tab"], out["pane"]) == (1, "w1:t9", "w1:p9")
+    err = capsys.readouterr().err
+    assert err.startswith(
+        "sparks: herdr agent start failed (herdr agent start: timed out after 34 seconds); tab w1:t9 is left open\n"
+    )
+    assert "pane says why" in err
+
+
+@pytest.mark.parametrize(("created", "left"), [
+    ({"tab": {"tab_id": "w1:t9"}}, "; tab w1:t9 is left open"),
+    ({"tab": {"tab_id": "w1:t9"}, "root_pane": {}}, "; tab w1:t9 is left open"),
+    ({"root_pane": {"pane_id": "w1:p9"}}, ""),
+])
+def test_spawn_unusable_tab_create_reply_names_the_tab_left_open(fake_spawn, created, left):
+    fake_spawn.replies(overrides={"herdr tab create": {"stdout": json.dumps({"result": created})}})
+    result = fake_spawn.run("reviewer")
+    assert_rejected(result, f"herdr tab create did not return a tab and its root pane{left}\n")
+    assert [call[1:3] for call in fake_spawn.herdr_calls()] == [["tab", "create"]]
+
+
+@pytest.mark.parametrize("reply", [
+    {"code": 1, "stderr": '{"error":{"message":"no such workspace"}}\n'},
+    {"code": 0, "stdout": '{"error":{"message":"no such workspace"}}\n'},
+])
+def test_spawn_failed_tab_create_starts_nothing(fake_spawn, reply):
+    fake_spawn.replies(overrides={"herdr tab create": reply})
+    result = fake_spawn.run("reviewer")
+    assert_rejected(result, "herdr tab create failed: no such workspace")
+    assert [call[1:3] for call in fake_spawn.herdr_calls()] == [["tab", "create"]]
+
+
+@pytest.mark.parametrize(("reply", "message"), [
+    ({"code": 2, "stderr": "pi: config broken\n"}, "pi --list-models failed: pi: config broken"),
+    ({"code": 1}, "pi --list-models failed: exit 1"),
+    # pi's real no-match reply: stdout, exit 0
+    ({"stdout": 'No models matching "claude-opus-5"\n'}, "pi has no model claude-opus-5"),
+])
+def test_spawn_pi_list_models_failure_is_refused_and_launches_nothing(fake_spawn, reply, message):
+    fake_spawn.replies(overrides={"pi --list-models claude-opus-5": reply})
+    assert_rejected(fake_spawn.run("reviewer"), message)
+    assert fake_spawn.herdr_calls() == []
+
+
+def test_spawn_finds_the_config_in_the_cwd_itself(fake_spawn):
+    nearer = fake_spawn.cwd / ".sparks" / "agents.toml"
+    fake_spawn.personas(persona(effort="low"), path=nearer)
+    plan = fake_spawn.plan("reviewer")
+    assert Path(plan["config"]) == nearer
+    assert plan["command"][-2:] == ["--thinking", "low"]
+
+
+@pytest.mark.parametrize("git", ["directory", "file"])
+def test_spawn_lookup_stops_at_the_git_top_level(fake_spawn, git):
+    outer = fake_spawn.project.parent / ".sparks" / "agents.toml"
+    fake_spawn.personas(persona(), path=outer)
+    fake_spawn.config.unlink()
+    if git == "file":  # a worktree or submodule has a .git file
+        (fake_spawn.project / ".git").rmdir()
+        (fake_spawn.project / ".git").write_text("gitdir: elsewhere\n", encoding="utf-8")
+    result = fake_spawn.run("reviewer", "--dry-run")
+    assert_rejected(result, f"or a parent up to the git top level {fake_spawn.project};")
+    assert fake_spawn.calls == []
+    # Outside a repository the walk goes on, and finds the outer file.
+    git_path = fake_spawn.project / ".git"
+    git_path.rmdir() if git_path.is_dir() else git_path.unlink()
+    assert Path(fake_spawn.plan("reviewer")["config"]) == outer
+
+
+@pytest.mark.parametrize("target", ["file", "directory"])
+@pytest.mark.parametrize("mode", [0o020, 0o002])
+def test_spawn_refuses_a_config_group_or_others_can_write(fake_spawn, target, mode):
+    item = fake_spawn.config if target == "file" else fake_spawn.config.parent
+    item.chmod(item.stat().st_mode | mode)
+    result = fake_spawn.run("reviewer", "--dry-run")
+    assert_rejected(result, f"{item}: writable by group or others; refusing its personas (chmod go-w {item})")
+    assert fake_spawn.calls == []
+
+
+@pytest.mark.skipif(not hasattr(os, "getuid"), reason="needs POSIX uids")
+@pytest.mark.parametrize("target", ["file", "directory"])
+def test_spawn_refuses_a_config_another_user_owns(tmp_path, monkeypatch, target):
+    config = tmp_path / ".sparks" / "agents.toml"
+    config.parent.mkdir(mode=0o755)
+    config.write_text(persona(), encoding="utf-8")
+    config.chmod(0o644)
+    other = os.getuid() + 1
+    owner = config if target == "file" else config.parent
+    real_stat = Path.stat
+
+    def fake_stat(self, *args, **kwargs):
+        info = real_stat(self, *args, **kwargs)
+        if self == owner:
+            return os.stat_result((info.st_mode, info.st_ino, info.st_dev, info.st_nlink, other, *info[5:]))
+        return info
+
+    monkeypatch.setattr(Path, "stat", fake_stat)
+    with pytest.raises(cli.SpawnError, match=re.escape(f"{owner}: owned by uid {other}, not you")):
+        cli._agents_file(tmp_path)
+
+
+def test_spawn_name_key_must_equal_the_table_name(fake_spawn):
+    fake_spawn.personas(persona(name="reviewer"))
+    assert fake_spawn.plan("reviewer")["command"][0] == "pi"
+    fake_spawn.personas(persona(name="critic"))
+    fake_spawn.log.unlink()
+    result = fake_spawn.run("reviewer")
+    assert_rejected(result, "[reviewer]: name is critic; it must equal the table name reviewer")
+    assert fake_spawn.calls == []
 
 
 def test_spawn_golden_example_has_no_personas_and_its_commented_examples_run(fake_spawn):

@@ -25,8 +25,8 @@ The golden example is [`defaults/agent.toml`](../../defaults/agent.toml) in this
 ## First turn
 
 1. Ask which project the personas belong to. The default is the current directory.
-2. Look for `<project>/.sparks/agents.toml`. `sparks agent spawn` uses the nearest one from the directory it runs in, walking up to the filesystem root, so also say if a parent directory has one that would win for a subdirectory.
-3. If there is none, offer to create it: copy `defaults/agent.toml` there unchanged, creating `.sparks/` if needed. The copy has its comments and no personas. Write it only after a yes.
+2. Look for `<project>/.sparks/agents.toml`. `sparks agent spawn` uses the nearest one from the directory it runs in, walking up to the git top level (the first directory with a `.git`), or to the filesystem root outside a git repository, so also say if a parent directory inside that range has one that would win for a subdirectory. spawn refuses the file if another user owns it or its `.sparks` directory, or if group or others can write either; report that as the check prints it.
+3. If there is none, offer to create it: copy `defaults/agent.toml` there unchanged, creating `.sparks/` if needed, with neither writable by group or others. The copy has its comments and no personas. Write it only after a yes.
 4. If there is one, read it and list each persona: its name, role, model, and effort. Run the check below on each and report the result. Then ask what the user wants to change.
 
 ## Add or edit a persona

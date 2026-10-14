@@ -5,7 +5,10 @@
 # maintains it. `sparks agent spawn <name>` reads one persona from it and
 # launches it as a pi session in a new herdr tab, in the caller's directory.
 # spawn uses the nearest .sparks/agents.toml: the current directory first,
-# then each parent up to the filesystem root.
+# then each parent up to the git top level (the first directory with a .git),
+# or up to the filesystem root outside a git repository. This file and its
+# .sparks directory must be owned by the user who runs spawn and must not be
+# writable by group or others; spawn refuses them otherwise.
 #
 # Each persona is one table. The table name is the persona's name and id, and
 # it is what you pass to `sparks agent spawn`: a lowercase letter, then up to
@@ -14,6 +17,8 @@
 #
 # Keys (all strings; no other keys are allowed):
 #
+#   name           Optional. The persona's name again, for readers. It must
+#                  equal the table name.
 #   role           Required. What the persona is for, in one line. For people
 #                  and skills reading this file; it is not sent to pi.
 #   model          Required. A pi model id exactly as `pi --list-models`
@@ -30,6 +35,11 @@
 #                  providers when more than one serves the model.
 #   system_prompt  Optional. Text appended to pi's system prompt with
 #                  --append-system-prompt, so pi's own prompt and tools stay.
+#                  It does turn off pi's APPEND_SYSTEM.md (.pi/APPEND_SYSTEM.md
+#                  or ~/.pi/agent/APPEND_SYSTEM.md): pi reads that file only
+#                  when no --append-system-prompt is given. Without a
+#                  system_prompt, APPEND_SYSTEM.md still applies. pi's
+#                  SYSTEM.md is not affected.
 #                  One line, with no tabs: herdr cannot type a newline or a
 #                  tab into the shell. In a """ string, end each line with \
 #                  to join the lines. It must not be the path of an existing
@@ -42,6 +52,7 @@
 # Examples (uncomment to use):
 #
 # [reviewer]
+# name = "reviewer"
 # role = "Reviews a pull request against the project's sparks"
 # model = "claude-opus-5"
 # provider = "anthropic"
@@ -54,6 +65,7 @@
 # """
 #
 # [implementer]
+# name = "implementer"
 # role = "Implements a scoped task and runs the tests"
 # model = "gpt-5.5"
 # provider = "openai-codex"
