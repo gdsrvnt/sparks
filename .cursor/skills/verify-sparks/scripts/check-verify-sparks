@@ -3,7 +3,7 @@
 
 Semantic contradiction across the source is the precedent. This script does
 not grade prose. It compares structural facts (schema, spark_id.TYPES, the
-example spark, published XXH64 vectors) and drives two isolated CLI paths.
+example spark, published XXH64 vectors) and drives isolated CLI paths.
 A script pass is not a verification pass until the agent writes prose.md.
 """
 
@@ -58,6 +58,7 @@ ARTIFACTS = (
     "add.txt",
     "add-file.json",
     "herdr-snapshot.txt",
+    "agent-spawn.txt",
     "scratch.txt",
 )
 MARKER = ".verify-sparks-scratch"
@@ -206,6 +207,7 @@ def index_paths(root: Path) -> tuple[list[str], list[str], list[str]]:
                 normative.append(rel(root, path))
     implementation = [
         "sparks.schema.json",
+        "defaults/agent.toml",
         "sparks.json",
         "spark_id.py",
         "spark_hash.py",
@@ -581,6 +583,75 @@ def check_herdr(root: Path, roots: list[Path], evidence: Path) -> int:
             remove_scratch(evidence, scratch, roots)
 
 
+def check_agent_spawn(root: Path, roots: list[Path], evidence: Path) -> int:
+    """Dry runs only: a persona built from pi's own model list, an unknown type, a smuggled flag."""
+    target = evidence / "agent-spawn.txt"
+    if target.is_symlink():
+        raise SystemExit(f"check-verify-sparks: refusing to write through symlink {target}")
+    if shutil.which("pi") is None:
+        target.write_text("UNREACHABLE\nprerequisite: pi on PATH with a configured provider\n", encoding="utf-8")
+        print("UNREACHABLE agent-spawn: pi is not on PATH")
+        print("prerequisite: pi on PATH with a configured provider")
+        print("not a pass")
+        return 3
+    scratch = make_scratch(evidence, roots, "verify-sparks-spawn")
+    try:
+        listed = run_cmd(["pi", "--list-models"], cwd=scratch, roots=roots)
+        lines = [line.split() for line in listed.stdout.splitlines() if line.strip()]
+        if listed.returncode != 0 or len(lines) < 2 or lines[0][:2] != ["provider", "model"]:
+            save_transcript(evidence, "agent-spawn.txt", listed, extra="UNREACHABLE\n")
+            print("UNREACHABLE agent-spawn: pi --list-models lists no model")
+            print("prerequisite: pi on PATH with a configured provider")
+            print("not a pass")
+            return 3
+        provider, model = lines[1][:2]
+        (scratch / ".sparks").mkdir()
+        (scratch / ".sparks" / "agents.toml").write_text(
+            f'[probe]\nrole = "verify-sparks probe"\nmodel = {json.dumps(model)}\n'
+            f'provider = {json.dumps(provider)}\neffort = "none"\n',
+            encoding="utf-8",
+        )
+        cwd = scratch / "sub"
+        cwd.mkdir()
+        spawn = ["uv", "run", "--script", str(root / "bin" / "sparks"), "agent", "spawn"]
+        drives = {
+            "plan": run_cmd([*spawn, "probe", "--dry-run"], cwd=cwd, roots=roots),
+            "unknown": run_cmd([*spawn, "nope", "--dry-run"], cwd=cwd, roots=roots),
+            "smuggle": run_cmd([*spawn, "probe", "--dry-run", "--additional-flags", "--model x"], cwd=cwd, roots=roots),
+        }
+        extra = "".join(
+            f"--- {name} ---\nargv={done.args}\nexit={done.returncode}\n{done.stdout}{done.stderr}"
+            for name, done in drives.items()
+        )
+        save_transcript(evidence, "agent-spawn.txt", listed, extra=f"persona: {provider}/{model}\n{extra}")
+        problems = []
+        try:
+            plan = json.loads(drives["plan"].stdout)
+        except ValueError:
+            plan = {}
+        expected = ["pi", "--provider", provider, "--model", model, "--thinking", "off"]
+        if drives["plan"].returncode != 0 or plan.get("command") != expected:
+            problems.append(f"dry run did not plan {expected}")
+        elif Path(plan.get("config", "")).resolve() != (scratch / ".sparks" / "agents.toml").resolve():
+            problems.append("dry run did not read the parent directory's .sparks/agents.toml")
+        for name, needle in (("unknown", "personas: probe"), ("smuggle", "--model is set by the persona")):
+            done = drives[name]
+            if (
+                done.returncode != 1 or done.stdout or not done.stderr.startswith("sparks: ")
+                or done.stderr.count("\n") != 1 or needle not in done.stderr
+            ):
+                problems.append(f"{name} was not a one-line sparks: refusal naming {needle!r}")
+        if problems:
+            print("FAIL agent-spawn: " + "; ".join(problems))
+            return 1
+        print(drives["plan"].stdout, end="")
+        print("PASS agent-spawn dry run from pi's own model list; unknown type and smuggled flag refused")
+        return 0
+    finally:
+        if scratch.exists():
+            remove_scratch(evidence, scratch, roots)
+
+
 def evidence_dir(roots: list[Path], explicit: str | None, root: Path) -> Path:
     if explicit:
         raw = Path(explicit).expanduser()
@@ -720,7 +791,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--out", help="evidence directory outside the checkout; wins over VERIFY_SPARKS_EVIDENCE")
     parser.add_argument(
         "command",
-        choices=("doctor", "contradict", "add", "herdr-snapshot", "run", "cleanup"),
+        choices=("doctor", "contradict", "add", "herdr-snapshot", "agent-spawn", "run", "cleanup"),
     )
     args = parser.parse_args(argv)
     root = repo_root(args.repo)
@@ -742,6 +813,8 @@ def main(argv: list[str]) -> int:
         return 1 if findings.failed else 0
     if args.command == "herdr-snapshot":
         return check_herdr(root, roots, evidence)
+    if args.command == "agent-spawn":
+        return check_agent_spawn(root, roots, evidence)
     return cmd_contradict(root, roots, evidence, with_add=True)
 
 

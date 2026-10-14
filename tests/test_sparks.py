@@ -21,6 +21,7 @@ import stat
 import subprocess
 import sys
 import time
+import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -2128,6 +2129,7 @@ def test_herdr_snapshot_public_files_and_fixtures_have_no_machine_specific_strin
         BIN, ROOT / "README.md", ROOT / "CHANGELOG.md",
         ROOT / "skills" / "herdr-operations" / "SKILL.md",
         ROOT / "skills" / "herdr-operations" / "scripts" / "README.md",
+        ROOT / "defaults" / "agent.toml", ROOT / "skills" / "agent-personas" / "SKILL.md",
     )
     for path in public_files:
         text = path.read_text(encoding="utf-8")
@@ -2582,6 +2584,280 @@ def test_herdr_query_uri_escaping_and_symlinks(saved_snapshot, name):
         result = query_sparks(fake, "--db", str(alias))
         assert_rejected(result, "pending journal data")
     fake.assert_calls(())
+
+
+# agent spawn
+
+
+PI_TABLE = """\
+provider      model           context  max-out  thinking  images
+anthropic     claude-opus-5   1M       128K     yes       yes
+openai        gpt-4o          128K     16K      no        yes
+openai        gpt-5.5         1M       128K     yes       yes
+openai-codex  gpt-5.5         1M       128K     yes       yes
+"""
+
+FAKE_TOOL = r'''
+import json
+import os
+import sys
+
+name = os.path.basename(sys.argv[0])
+with open(os.environ["SPARKS_TEST_SPAWN_LOG"], "a", encoding="utf-8") as log:
+    log.write(json.dumps([name, *sys.argv[1:]]) + "\n")
+with open(os.environ["SPARKS_TEST_SPAWN_REPLIES"], encoding="utf-8") as config:
+    replies = json.load(config)
+key = name + " " + " ".join(sys.argv[1:3])
+reply = replies.get(key)
+if reply is None:
+    sys.stderr.write("fake: unexpected argv\n")
+    sys.exit(73)
+sys.stdout.write(reply.get("stdout", ""))
+sys.stderr.write(reply.get("stderr", ""))
+sys.exit(reply.get("code", 0))
+'''
+
+AGENT_NAME = re.compile(r"[a-z][a-z0-9_-]{0,31}")
+
+
+class FakeSpawn:
+    """A project with .sparks/agents.toml, run from a subdirectory, and fake pi and herdr."""
+
+    def __init__(self, directory, monkeypatch):
+        self.bin_dir = directory / "fake-bin"
+        self.bin_dir.mkdir()
+        for tool in ("pi", "herdr"):
+            path = self.bin_dir / tool
+            path.write_text(f"#!{sys.executable}\n" + FAKE_TOOL, encoding="utf-8")
+            path.chmod(0o755)
+        self.log = directory / "spawn-argv.jsonl"
+        self.replies_path = directory / "spawn-replies.json"
+        self.project = directory / "project"
+        self.cwd = self.project / "deep" / "er"
+        self.cwd.mkdir(parents=True)
+        (self.project / ".sparks").mkdir()
+        self.config = self.project / ".sparks" / "agents.toml"
+        monkeypatch.setenv("PATH", str(self.bin_dir) + os.pathsep + os.environ.get("PATH", ""))
+        monkeypatch.setenv("SPARKS_TEST_SPAWN_LOG", str(self.log))
+        monkeypatch.setenv("SPARKS_TEST_SPAWN_REPLIES", str(self.replies_path))
+        monkeypatch.delenv("HERDR_WORKSPACE_ID", raising=False)
+        self.replies(start_code=0)
+        self.personas('[reviewer]\nrole = "Reviews"\nmodel = "claude-opus-5"\neffort = "high"\n')
+
+    def personas(self, text):
+        self.config.write_text(text, encoding="utf-8")
+
+    def replies(self, start_code=0, table=PI_TABLE):
+        created = {"result": {"tab": {"tab_id": "w1:t9"}, "root_pane": {"pane_id": "w1:p9"}}}
+        replies = {
+            "pi --list-models " + model: {"stdout": table}
+            for model in ("claude-opus-5", "gpt-4o", "gpt-5.5", "claude-opus-9")
+        }
+        replies["herdr tab create"] = {"stdout": json.dumps(created)}
+        replies["herdr agent start"] = {
+            "code": start_code,
+            "stdout": "{}" if start_code == 0 else "",
+            "stderr": "" if start_code == 0 else '{"error":{"message":"timed out"}}\n',
+        }
+        replies["herdr pane read"] = {"stdout": "pane says why\n"}
+        self.replies_path.write_text(json.dumps(replies), encoding="utf-8")
+
+    def run(self, *args, **kwargs):
+        return sparks("agent", "spawn", *args, cwd=self.cwd, timeout=30, **kwargs)
+
+    def plan(self, *args):
+        result = self.run(*args, "--dry-run")
+        assert (result.returncode, result.stderr) == (0, ""), result.stderr
+        assert result.stdout.count("\n") == 1
+        return json.loads(result.stdout)
+
+    @property
+    def calls(self):
+        if not self.log.exists():
+            return []
+        return [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+
+    def herdr_calls(self):
+        return [call for call in self.calls if call[0] == "herdr"]
+
+
+@pytest.fixture
+def fake_spawn(tmp_path, monkeypatch):
+    if os.name != "posix":
+        pytest.skip("fake executables use a POSIX shebang")
+    return FakeSpawn(tmp_path, monkeypatch)
+
+
+def persona(**keys):
+    body = {"role": "Reviews", "model": "claude-opus-5", "effort": "high", **keys}
+    lines = [f"{key} = {json.dumps(value) if isinstance(value, str) else value}" for key, value in body.items()
+             if value is not None]
+    return "[reviewer]\n" + "\n".join(lines) + "\n"
+
+
+def test_spawn_dry_run_finds_the_parent_config_and_builds_the_pi_command(fake_spawn):
+    fake_spawn.personas(persona(provider="anthropic", system_prompt="Review only. Don't edit."))
+    plan = fake_spawn.plan("reviewer")
+    assert set(plan) == {"agent", "config", "cwd", "command", "timeout_ms"}
+    assert plan["command"] == [
+        "pi", "--provider", "anthropic", "--model", "claude-opus-5", "--thinking", "high",
+        "--append-system-prompt", "Review only. Don't edit.",
+    ]
+    assert Path(plan["config"]) == fake_spawn.config
+    assert Path(plan["cwd"]).resolve() == fake_spawn.cwd.resolve()
+    assert plan["timeout_ms"] == 30000
+    assert re.fullmatch(r"reviewer-[0-9a-f]{4}", plan["agent"]) and AGENT_NAME.fullmatch(plan["agent"])
+    assert fake_spawn.calls == [["pi", "--list-models", "claude-opus-5"]]
+
+
+@pytest.mark.parametrize(("effort", "thinking"), [
+    ("none", "off"), ("minimal", "minimal"), ("low", "low"), ("medium", "medium"), ("high", "high"),
+    ("xhigh", "xhigh"), ("extra high", "xhigh"), ("Extra-High", "xhigh"), ("extrahigh", "xhigh"), ("max", "max"),
+])
+def test_spawn_effort_maps_to_a_pi_thinking_level(fake_spawn, effort, thinking):
+    fake_spawn.personas(persona(effort=effort))
+    command = fake_spawn.plan("reviewer")["command"]
+    assert command[command.index("--thinking") + 1] == thinking
+
+
+def test_spawn_provider_comes_from_pi_when_one_serves_the_model_and_is_required_when_several_do(fake_spawn):
+    fake_spawn.personas(persona(model="gpt-5.5"))
+    result = fake_spawn.run("reviewer", "--dry-run")
+    assert_rejected(result, "more than one pi provider serves gpt-5.5; set provider to one of: openai, openai-codex")
+    fake_spawn.personas(persona(model="gpt-5.5", provider="openai-codex"))
+    assert fake_spawn.plan("reviewer")["command"][1:5] == ["--provider", "openai-codex", "--model", "gpt-5.5"]
+    fake_spawn.personas(persona())
+    assert fake_spawn.plan("reviewer")["command"][1:3] == ["--provider", "anthropic"]
+
+
+@pytest.mark.parametrize(("keys", "message"), [
+    ({"effort": "ultra"}, "pi has no ultra thinking level"),
+    ({"effort": "fastest"}, "unknown effort"),
+    ({"model": None}, "model must be specified"),
+    ({"effort": None}, "effort must be specified"),
+    ({"role": None}, "role must be specified"),
+    ({"model": "claude-opus-5:high"}, "model must not include effort"),
+    ({"model": "claude-opus-5-fast"}, "model must not include speed"),
+    ({"speed": "fast"}, "personas have no speed"),
+    ({"temperature": "1"}, "unknown key"),
+    ({"agent": "claude"}, "only pi is supported"),
+    ({"provider": ""}, "provider is empty"),
+    ({"effort": 3}, "effort must be a string"),
+    ({"provider": "xai"}, "pi provider xai does not serve claude-opus-5; providers that do: anthropic"),
+    ({"model": "claude-opus-9"}, "pi has no model claude-opus-9"),
+    ({"model": "gpt-4o", "provider": "openai"}, "without thinking; set effort to none"),
+    ({"system_prompt": "two\nlines"}, "system_prompt must be one line"),
+    ({"system_prompt": "notes.md"}, "system_prompt names an existing path"),
+])
+def test_spawn_refuses_a_persona_pi_cannot_run_and_launches_nothing(fake_spawn, keys, message):
+    (fake_spawn.cwd / "notes.md").write_text("not a prompt\n", encoding="utf-8")
+    fake_spawn.personas(persona(**keys))
+    result = fake_spawn.run("reviewer")
+    assert_rejected(result, message)
+    assert fake_spawn.herdr_calls() == []
+
+
+def test_spawn_model_without_thinking_runs_at_effort_none(fake_spawn):
+    fake_spawn.personas(persona(model="gpt-4o", provider="openai", effort="none"))
+    assert fake_spawn.plan("reviewer")["command"][-2:] == ["--thinking", "off"]
+
+
+def test_spawn_unknown_type_lists_the_personas(fake_spawn):
+    fake_spawn.personas(persona() + '\n[implementer]\nrole = "x"\nmodel = "gpt-5.5"\neffort = "low"\n')
+    result = fake_spawn.run("writer")
+    assert_rejected(result, "no persona writer; personas: reviewer, implementer")
+    assert fake_spawn.calls == []
+
+
+@pytest.mark.parametrize(("text", "message"), [
+    (None, "no .sparks/agents.toml in"),
+    ("[reviewer\n", "invalid TOML"),
+    ('[Reviewer]\nrole = "x"\nmodel = "claude-opus-5"\neffort = "low"\n', "a persona name is a lowercase letter"),
+])
+def test_spawn_refuses_a_missing_or_broken_config(fake_spawn, text, message):
+    if text is None:
+        fake_spawn.config.unlink()
+    else:
+        fake_spawn.personas(text)
+    result = fake_spawn.run("Reviewer" if "Reviewer" in (text or "") else "reviewer")
+    assert_rejected(result, message)
+    assert fake_spawn.calls == []
+
+
+def test_spawn_additional_flags_are_split_on_whitespace_and_appended(fake_spawn):
+    plan = fake_spawn.plan("--additional-flags", "--offline   --name 'two words'", "reviewer")
+    assert plan["command"][-4:] == ["--offline", "--name", "'two", "words'"]
+    assert fake_spawn.plan("reviewer", "--additional-flags", "--no-skills")["command"][-1] == "--no-skills"
+
+
+@pytest.mark.parametrize("flags", [
+    "--model gpt-5.5", "--offline --model=gpt-5.5", "--effort high", "--speed fast", "--provider openai",
+    "--thinking=max", "--system-prompt x", "--append-system-prompt x",
+])
+def test_spawn_refuses_persona_flags_smuggled_into_additional_flags(fake_spawn, flags):
+    result = fake_spawn.run("reviewer", "--additional-flags", flags)
+    assert_rejected(result, "is set by the persona")
+    assert fake_spawn.calls == []
+
+
+@pytest.mark.parametrize("args", [
+    ["--timeout", "3"], ["--timeout", "300.5"], ["--timeout", "nan"], ["--timeout", "soon"],
+    ["--additional-flags", "a", "--additional-flags", "b"], [],
+])
+def test_spawn_usage_errors_exit_2_and_call_nothing(fake_spawn, args):
+    result = fake_spawn.run(*args, *(["reviewer"] if args else []))
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert result.stderr.startswith("usage: sparks agent spawn")
+    assert fake_spawn.calls == []
+
+
+@pytest.mark.parametrize(("seconds", "ms"), [("3.5", 3500), ("300", 300000), ("90", 90000)])
+def test_spawn_timeout_bounds_are_open_at_3_and_closed_at_300(fake_spawn, seconds, ms):
+    assert fake_spawn.plan("reviewer", "--timeout", seconds)["timeout_ms"] == ms
+
+
+def test_spawn_opens_a_tab_in_the_caller_directory_and_starts_pi_in_its_pane(fake_spawn, monkeypatch):
+    monkeypatch.setenv("HERDR_WORKSPACE_ID", "w1")
+    result = fake_spawn.run("reviewer", "--timeout", "45", "--additional-flags", "--offline")
+    assert (result.returncode, result.stderr) == (0, ""), result.stderr
+    out = json.loads(result.stdout)
+    assert set(out) == {"agent", "tab", "pane", "command"}
+    assert (out["tab"], out["pane"]) == ("w1:t9", "w1:p9")
+    pi_args = ["--provider", "anthropic", "--model", "claude-opus-5", "--thinking", "high", "--offline"]
+    assert out["command"] == ["pi", *pi_args]
+    create, start = fake_spawn.herdr_calls()
+    assert create[:5] == ["herdr", "tab", "create", "--workspace", "w1"]
+    assert create[5] == "--cwd" and Path(create[6]).resolve() == fake_spawn.cwd.resolve()
+    assert create[7:] == ["--no-focus"]
+    assert start == [
+        "herdr", "agent", "start", out["agent"], "--kind", "pi", "--pane", "w1:p9",
+        "--timeout", "45000", "--", *pi_args,
+    ]
+
+
+def test_spawn_failed_start_reports_the_pane_and_leaves_the_tab(fake_spawn):
+    fake_spawn.replies(start_code=1)
+    result = fake_spawn.run("reviewer")
+    assert result.returncode == 1
+    assert result.stderr.startswith("sparks: herdr agent start failed (exit 1); tab w1:t9 is left open\n")
+    assert "timed out" in result.stderr and "pane says why" in result.stderr
+    assert json.loads(result.stdout)["pane"] == "w1:p9"
+    assert [call[1:3] for call in fake_spawn.herdr_calls()] == [
+        ["tab", "create"], ["agent", "start"], ["pane", "read"],
+    ]
+
+
+def test_spawn_golden_example_has_no_personas_and_its_commented_examples_run(fake_spawn):
+    golden = (ROOT / "defaults" / "agent.toml").read_text(encoding="utf-8")
+    fake_spawn.personas(golden)
+    assert_rejected(fake_spawn.run("reviewer"), "no persona reviewer; personas: none")
+    examples = golden.split("# Examples (uncomment to use):\n", 1)[1]
+    fake_spawn.personas("".join(re.sub(r"^# ?", "", line) for line in examples.splitlines(True)))
+    personas = tomllib.loads(fake_spawn.config.read_text(encoding="utf-8"))
+    assert personas, "the golden example lost its commented examples"
+    for name in personas:
+        assert fake_spawn.plan(name)["command"][0] == "pi"
 
 
 # format and ids

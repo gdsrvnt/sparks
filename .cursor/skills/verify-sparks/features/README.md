@@ -18,7 +18,7 @@ Semantic contradiction across the whole source is the precedent. Programmatic dr
 - Start every recipe from the baseline state.
 - Treat every command as literal. Keep flags and quoted strings unchanged.
 - Run decidable checks through `check-verify-sparks contradict`.
-- Run the CLI through `check-verify-sparks add` or `check-verify-sparks herdr-snapshot`, not by hand against a shared file.
+- Run the CLI through `check-verify-sparks add`, `check-verify-sparks herdr-snapshot`, or `check-verify-sparks agent-spawn`, not by hand against a shared file.
 - The prose pass reads every path under `# normative` and `# implementation` in `index.txt`. `# evidence-not-normative` is not a claim. A normative file missing from that index was not verified.
 - Do not report a skipped entry point as verified through a different path.
 
@@ -45,3 +45,4 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 - [Add](./add.md) covers `sparks add [--path]`: create, exact-question replace, and a refusal that does not write. There is no `entry add`.
 - [Id and hash](./id-and-hash.md) covers the published XXH64 vectors and every stored id in the root `sparks.json`.
 - [Herdr snapshot](./herdr-snapshot.md) covers an isolated `sparks herdr snapshot --db`.
+- [Agent spawn](./agent-spawn.md) covers `sparks agent spawn --dry-run`: a persona's pi command, an unknown type, and a smuggled flag. It never launches.

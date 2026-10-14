@@ -18,7 +18,7 @@ After the plugin is listed, install it from Customize: find sparks and choose In
 
 To load this repository locally before it is published:
 
-1. Copy this plugin into `~/.cursor/plugins/local/sparks`, including `.cursor-plugin/plugin.json`, the component directories, and `docs/` (the `why` skill reads `docs/uncovering-intention.md`).
+1. Copy this plugin into `~/.cursor/plugins/local/sparks`, including `.cursor-plugin/plugin.json`, the component directories, `docs/` (the `why` skill reads `docs/uncovering-intention.md`), and `defaults/` (the `agent-personas` skill copies `defaults/agent.toml`).
 2. Reload Cursor.
 3. Open Customize and confirm the plugin is present.
 
@@ -30,7 +30,7 @@ Discovery uses the default folders. The manifest does not set custom component p
 
 | Component | Path | Status |
 | --- | --- | --- |
-| Skills | `skills/` | `sparks-discuss`, `sparks-domain`, `sparks-postcall`, `spark-voice`, `spark-verification`, `study`, and `herdr-operations`; `ketchup`, `how`, `why`, `bro`, `create-verification-skill`, and `maintain-verification-skill` from poteto's pstack; and `show-me` from HumanLayer. See `THIRD_PARTY_NOTICES.md`. |
+| Skills | `skills/` | `sparks-discuss`, `sparks-domain`, `sparks-postcall`, `spark-voice`, `spark-verification`, `study`, `herdr-operations`, and `agent-personas`; `ketchup`, `how`, `why`, `bro`, `create-verification-skill`, and `maintain-verification-skill` from poteto's pstack; and `show-me` from HumanLayer. See `THIRD_PARTY_NOTICES.md`. |
 | Rules | `rules/` | `blocker-clearing`: when work is blocked on you, the agent asks one multiple-choice question with options that each clear the blocker, a free-text field, and a stop-and-deliberate option that runs `sparks-discuss` and records the outcome as a spark. `post-call-self-healing`: after every voice call ends, the agent runs the `sparks-postcall` self-healing procedure in full (opens `skills/sparks-postcall/SKILL.md`, or asks you to run `/sparks-postcall`). The post-call protocol lives only in `sparks-postcall`, not in `spark-voice`. |
 | Agents | `agents/` | Not included. |
 | Commands | `commands/` | Not included. |
@@ -91,6 +91,29 @@ The path uses the same precedence as `sparks herdr snapshot`. A missing database
 `summary` prints the snapshot time and stored counts, then agent status counts, then one line for each agent whose status is not exactly `done`, even with filters. The other views print that table only. Columns are the parsed list fields, not the stored fetch JSON. `--raw` prints each stored fetch object on its own line instead; it does not apply to `summary`.
 
 Filters are exact and combine. A filter that does not apply to the view is a usage error (exit 2). Zero matches still exit 0.
+
+### `sparks agent spawn`
+
+`bin/sparks agent spawn <type> [--additional-flags "<string>"] [--timeout <seconds>] [--dry-run]` launches one agent persona as a pi session in a new herdr tab, in the current directory. Every persona runs in pi.
+
+Personas live in `.sparks/agents.toml`: one TOML table per persona, named by the persona's id, with `role`, `model`, `effort`, and optionally `provider`, `system_prompt`, and `agent`. There is no speed. The golden example [`defaults/agent.toml`](defaults/agent.toml) defines every key in its comments and carries commented examples; the `agent-personas` skill (`/agent-personas`) creates a project's file from it and maintains it. The command uses the nearest `.sparks/agents.toml`: the current directory first, then each parent up to the filesystem root. An unknown type is refused with the persona names listed.
+
+```sh
+cd path/to/project
+path/to/sparks/bin/sparks agent spawn reviewer
+# {"agent": "reviewer-3f1a", "tab": "w1:t4", "pane": "w1:p7", "command": ["pi", "--provider", "anthropic", "--model", "claude-opus-5", "--thinking", "high"]}
+```
+
+- The persona becomes `pi --provider <provider> --model <model> --thinking <level>`, then `--append-system-prompt <system_prompt>` if it has one, then the additional flags. `--append-system-prompt` adds the persona's prompt to pi's own system prompt instead of replacing it, so pi's own prompt, with its tool instructions, stays in effect.
+- `model` must be an id that `pi --list-models <model>` prints, with no `:<thinking>` suffix and no speed word such as `fast`. `effort` is `none`, `minimal`, `low`, `medium`, `high`, `xhigh` (`extra high`, `extra-high`, and `extrahigh` are the same), or `max`. `none` is sent as `off`. `ultra` is refused because pi has no ultra level, and a model pi lists without thinking only takes `none`. Without a `provider`, the command refuses and lists the providers when more than one pi provider serves the model. `agent` may only be `pi`, the default.
+- `system_prompt` is one line with no tabs, because herdr refuses to type a control character into the shell. In a `"""` string, end each line with `\` to join the lines. It must not be the path of an existing file, because pi would read that file instead of the text.
+- `--additional-flags` takes one string, split on whitespace, with each word appended to the pi command; quotes and backslashes are ordinary characters. It is refused if it holds `--model`, `--provider`, `--thinking`, `--effort`, `--speed`, `--system-prompt`, or `--append-system-prompt`: the persona sets those. Pass it once.
+- The launch runs `herdr tab create --cwd <cwd> --no-focus` (in `$HERDR_WORKSPACE_ID` when set), then `herdr agent start <name> --kind pi --pane <pane> --timeout <ms> -- <pi arguments>`. The agent name is the persona name, a hyphen, and four random hex digits. `--timeout` is herdr's start timeout: more than 3 and at most 300 seconds, default 30. Success prints one JSON line with `agent`, `tab`, `pane`, and `command`.
+- If herdr does not start the agent, the tab stays open, herdr's output and the pane's last 120 lines go to stderr, and the JSON line still names the tab and pane.
+- `--dry-run` checks everything, including `pi --list-models`, and prints the plan as one JSON line (`agent`, `config`, `cwd`, `command`, `timeout_ms`) without calling herdr.
+- Exit 0 means launched, or the plan was printed. Exit 1 means refused with one `sparks: ` line and nothing launched, or herdr did not start the agent. Exit 2 is a usage error, including a `--timeout` out of range.
+
+The checks, the effort mapping, the provider rule, and the herdr launch are adapted from `gstack spawn` in [gdsrvnt/gstack](https://github.com/gdsrvnt/gstack), routed to pi only. There is no command yet to list or stop the agents it launched.
 
 ## Background
 

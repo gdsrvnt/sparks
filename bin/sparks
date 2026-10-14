@@ -4,10 +4,12 @@
 # dependencies = ["jsonschema>=4.18"]
 # ///
 
-"""Maintain sparks, and snapshot or query the current herdr inventory in SQLite.
+"""Maintain sparks, snapshot or query the current herdr inventory in SQLite,
+and spawn agent personas as pi sessions in herdr.
 
 ``sparks add`` adds or replaces one spark by exact question in a list
 of sparks. ``--path`` defaults to ``./sparks.json`` in the working directory.
+``sparks agent spawn`` reads a persona from ``.sparks/agents.toml``.
 The spark shape comes from ``sparks.schema.json``. ``spark_id.py`` derives
 the id (XXH64 via the dependency-free ``spark_hash.py``), and add stores it
 as the spark's optional ``id`` key.
@@ -20,6 +22,8 @@ import errno
 import json
 import math
 import os
+import re
+import secrets
 import shutil
 import sqlite3
 import stat
@@ -27,6 +31,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1061,9 +1066,354 @@ def query(db: str | None = None, view: str = "summary", status: str | None = Non
     return header if not body else f"{header}\n{body}"
 
 
+# sparks agent spawn. The flag checks, effort mapping, provider resolution
+# from `pi --list-models`, and herdr launch are adapted from gstack's
+# scripts/gstack_spawn (github.com/gdsrvnt/gstack), routed to pi only.
+
+SPAWN_DESCRIPTION = """\
+Launch one agent persona from .sparks/agents.toml as a pi session in a new
+herdr tab, in the current directory.
+
+<type> is a persona name: a table in the nearest .sparks/agents.toml, looked
+up in the current directory, then in each parent up to the filesystem root.
+The golden example defaults/agent.toml defines the file. Every persona runs in
+pi; its agent key may only be "pi", the default.
+
+The persona becomes this pi command:
+  pi --provider <provider> --model <model> --thinking <level>
+     [--append-system-prompt <system_prompt>] [<additional flags>]
+model must be an id that pi --list-models <model> prints, with no :<thinking>
+suffix and no speed. effort is none, minimal, low, medium, high, xhigh (also
+"extra high", "extra-high", or "extrahigh"), or max. none is sent as off.
+ultra is refused: pi has no ultra level. An effort other than none is refused
+for a model pi lists without thinking. Without a provider, the command refuses
+and lists the providers when more than one pi provider serves the model.
+system_prompt is one line with no tabs, because herdr cannot type a control
+character into the shell, and must not name an existing path, because pi
+would read that file instead of the text.
+
+--additional-flags takes one string. It is split on whitespace and each word
+is appended to the pi command. Quotes and backslashes are ordinary
+characters. It is refused if it holds --model, --provider, --thinking,
+--effort, --speed, --system-prompt, or --append-system-prompt: the persona
+sets those.
+
+Launch: herdr tab create --cwd <cwd> --no-focus (with --workspace
+$HERDR_WORKSPACE_ID when set), then herdr agent start <name> --kind pi
+--pane <pane> --timeout <ms> -- <pi arguments>. <name> is the persona name,
+a hyphen, and four random hex digits. Success prints one JSON line with
+agent, tab, pane, and command. If the start fails, the tab stays open,
+herdr's output and the pane's last 120 lines go to stderr, and the JSON line
+still names the tab and pane.
+
+--dry-run runs pi --list-models but no herdr command, and prints the plan as
+one JSON line with agent, config, cwd, command, and timeout_ms."""
+
+SPAWN_EPILOG = """\
+exit status: 0 launched, or plan printed with --dry-run; 1 refused and nothing
+launched, or herdr did not start the agent; 2 usage error, including a
+--timeout that is not more than 3 and at most 300 seconds."""
+
+AGENTS_FILE = Path(".sparks") / "agents.toml"
+GOLDEN_AGENTS = "defaults/agent.toml"
+# herdr agent names match [a-z][a-z0-9_-]{0,31}; spawn appends "-" and 4 hex digits.
+PERSONA_NAME = re.compile(r"[a-z][a-z0-9_-]{0,26}")
+PERSONA_KEYS = ("role", "model", "effort", "provider", "system_prompt", "agent")
+PI_THINKING = {
+    "none": "off", "minimal": "minimal", "low": "low", "medium": "medium", "high": "high",
+    "xhigh": "xhigh", "extra high": "xhigh", "extra-high": "xhigh", "extrahigh": "xhigh",
+    "max": "max",
+}
+THINKING_SUFFIX = re.compile(r":(none|off|minimal|low|medium|high|xhigh|extra-?high|max|ultra)$", re.I)
+SPEED_WORDS = frozenset({"fast", "normal", "ultrafast"})
+# herdr refuses to type an argument with a control character (a newline, a tab)
+# into the pane's shell: "cannot be encoded safely for the target shell".
+CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+PERSONA_FLAGS = (
+    "--model", "--provider", "--thinking", "--effort", "--speed",
+    "--system-prompt", "--append-system-prompt",
+)
+START_TIMEOUT = 30.0  # seconds; herdr agent start's own default
+CALL_TIMEOUT = 30  # seconds for pi --list-models, herdr tab create, herdr pane read
+PANE_LINES = 120
+
+
+class SpawnError(Exception):
+    """A complete one-line diagnostic. Nothing was launched."""
+
+
+def _start_timeout(text: str) -> float:
+    try:
+        seconds = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number of seconds: {text!r}") from None
+    if not (math.isfinite(seconds) and 3 < seconds <= 300):
+        raise argparse.ArgumentTypeError("must be more than 3 and at most 300 seconds")
+    return seconds
+
+
+class _Once(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        if getattr(namespace, self.dest) is not None:
+            parser.error(f"{option_string} may be passed once")
+        setattr(namespace, self.dest, values)
+
+
+def _caller_cwd() -> str:
+    """The working directory as the caller spells it: $PWD when it names that directory."""
+    cwd = os.getcwd()
+    pwd = os.environ.get("PWD")
+    if pwd and os.path.isabs(pwd):
+        with contextlib.suppress(OSError):
+            if os.path.samefile(pwd, cwd):
+                return pwd
+    return cwd
+
+
+def _agents_file(start: Path) -> Path:
+    """The nearest .sparks/agents.toml: start, then each parent up to the filesystem root."""
+    for directory in (start, *start.parents):
+        candidate = directory / AGENTS_FILE
+        if candidate.is_file():
+            return candidate
+    raise SpawnError(
+        f"no {AGENTS_FILE} in {_show(start)} or any parent; "
+        f"the agent-personas skill creates one from {GOLDEN_AGENTS}"
+    )
+
+
+def _personas(path: Path) -> dict[str, object]:
+    try:
+        with path.open("rb") as handle:
+            return tomllib.load(handle)
+    except OSError as exc:
+        raise SpawnError(f"{_show(path)}: cannot read: {_why(exc)}") from exc
+    except ValueError as exc:  # TOMLDecodeError, or bytes that are not UTF-8
+        raise SpawnError(f"{_show(path)}: invalid TOML: {_snapshot_reason(exc)}") from exc
+
+
+def _persona(personas: dict[str, object], name: str, label: str) -> dict[str, str]:
+    """The named persona, checked against the keys and rules in defaults/agent.toml."""
+    entry = personas.get(name)
+    if not isinstance(entry, dict):
+        names = [key for key, value in personas.items() if isinstance(value, dict)]
+        known = ", ".join(_show(key) for key in names) or "none"
+        raise SpawnError(f"{label}: no persona {_show(name)}; personas: {known}")
+    where = f"{label}: [{_show(name)}]"
+    if not PERSONA_NAME.fullmatch(name):
+        raise SpawnError(f"{where}: a persona name is a lowercase letter, then up to 26 of a-z, 0-9, -, _")
+    if "speed" in entry:
+        raise SpawnError(f"{where}: personas have no speed")
+    unknown = [key for key in entry if key not in PERSONA_KEYS]
+    if unknown:
+        raise SpawnError(f"{where}: unknown key {_show(unknown[0])}; keys are {', '.join(PERSONA_KEYS)}")
+    for key, value in entry.items():
+        if not isinstance(value, str):
+            raise SpawnError(f"{where}: {key} must be a string")
+        if not value.strip():
+            raise SpawnError(f"{where}: {key} is empty; set it or leave it out")
+    for key in ("role", "model", "effort"):
+        if key not in entry:
+            raise SpawnError(f"{where}: {key} must be specified")
+    agent = entry.get("agent", "pi")
+    if agent != "pi":
+        raise SpawnError(f"{where}: agent is {_show(agent)}; only pi is supported")
+    return entry
+
+
+def _pi_thinking(effort: str, where: str) -> str:
+    text = " ".join(effort.lower().split())
+    if text == "ultra":
+        raise SpawnError(f"{where}: pi has no ultra thinking level")
+    if text not in PI_THINKING:
+        raise SpawnError(
+            f"{where}: unknown effort {_show(effort)}; "
+            "use none, minimal, low, medium, high, xhigh (extra high), or max"
+        )
+    return PI_THINKING[text]
+
+
+def _check_model(model: str, where: str) -> None:
+    suffix = THINKING_SUFFIX.search(model)
+    if suffix:
+        raise SpawnError(f"{where}: model must not include effort (found {suffix.group(0)}); set effort")
+    speed = [word for word in re.split(r"[^a-z0-9]+", model.lower()) if word in SPEED_WORDS]
+    if speed:
+        raise SpawnError(f"{where}: model must not include speed (found {speed[0]})")
+
+
+def _additional_words(raw: str | None) -> list[str]:
+    """Split on whitespace, like gstack spawn. Refuse a flag the persona sets."""
+    words = raw.split() if raw is not None else []
+    for word in words:
+        flag = word.split("=", 1)[0]
+        if flag in PERSONA_FLAGS:
+            raise SpawnError(f"--additional-flags: {flag} is set by the persona in {AGENTS_FILE}")
+        if CONTROL.search(word):
+            raise SpawnError("--additional-flags: herdr cannot type a control character into the shell")
+    return words
+
+
+def _run(argv: list[str], timeout: float, what: str) -> subprocess.CompletedProcess:
+    executable = shutil.which(argv[0])
+    if executable is None:
+        raise SpawnError(f"{argv[0]}: command not found")
+    try:
+        return subprocess.run(
+            [executable, *argv[1:]], shell=False, capture_output=True, stdin=subprocess.DEVNULL,
+            encoding="utf-8", errors="replace", timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        raise SpawnError(f"{what}: timed out after {timeout:g} seconds") from None
+    except (OSError, ValueError) as exc:
+        reason = _why(exc) if isinstance(exc, OSError) else str(exc)
+        raise SpawnError(f"{what}: {_snapshot_reason(reason)}") from exc
+
+
+def _pi_rows(text: str) -> list[dict[str, str]]:
+    """Rows of the `pi --list-models` table, keyed by its header (provider, model, ..., thinking)."""
+    lines = [line.split() for line in text.splitlines() if line.strip()]
+    if not lines or lines[0][:2] != ["provider", "model"]:
+        return []
+    return [dict(zip(lines[0], cells)) for cells in lines[1:] if len(cells) >= 2]
+
+
+def _pi_model(model: str, provider: str | None, where: str) -> dict[str, str]:
+    """The pi row for model, exact id; with no provider, refuse when several serve it."""
+    listed = _run(["pi", "--list-models", model], CALL_TIMEOUT, "pi --list-models")
+    if listed.returncode:
+        reason = listed.stderr.strip() or listed.stdout.strip() or f"exit {listed.returncode}"
+        raise SpawnError(f"pi --list-models failed: {_snapshot_reason(reason)}")
+    rows = _pi_rows(listed.stdout)
+    exact = [row for row in rows if row["model"].lower() == model.lower()]
+    if not exact:
+        near = ", ".join(dict.fromkeys(f"{row['provider']}/{row['model']}" for row in rows[:8]))
+        raise SpawnError(f"{where}: pi has no model {_show(model)}" + (f"; it lists {near}" if near else ""))
+    providers = list(dict.fromkeys(row["provider"] for row in exact))
+    if provider is None:
+        if len(providers) > 1:
+            raise SpawnError(
+                f"{where}: more than one pi provider serves {model}; "
+                f"set provider to one of: {', '.join(providers)}"
+            )
+        return exact[0]
+    for row in exact:
+        if row["provider"].lower() == provider.lower():
+            return row
+    raise SpawnError(
+        f"{where}: pi provider {_show(provider)} does not serve {model}; providers that do: {', '.join(providers)}"
+    )
+
+
+def spawn_plan(persona_name: str, additional: str | None, timeout: float) -> dict[str, object]:
+    """Everything a launch needs, checked. Calls pi --list-models, never herdr."""
+    words = _additional_words(additional)
+    cwd = _caller_cwd()
+    path = _agents_file(Path(cwd))
+    label = _show(path)
+    entry = _persona(_personas(path), persona_name, label)
+    where = f"{label}: [{persona_name}]"
+    model = entry["model"].strip()
+    _check_model(model, where)
+    thinking = _pi_thinking(entry["effort"], where)
+    prompt = entry.get("system_prompt")
+    if prompt is not None and CONTROL.search(prompt):
+        raise SpawnError(
+            f"{where}: system_prompt must be one line with no tabs: herdr cannot type a control "
+            'character into the shell (in a """ string, end each line with \\)'
+        )
+    if prompt is not None and os.path.exists(os.path.join(cwd, prompt)):
+        # pi reads an existing path as a file instead of using the text.
+        raise SpawnError(f"{where}: system_prompt names an existing path; pi would read that file instead")
+    provider = entry["provider"].strip() if "provider" in entry else None
+    row = _pi_model(model, provider, where)
+    if thinking != "off" and row.get("thinking") == "no":
+        raise SpawnError(f"{where}: pi lists {row['provider']}/{row['model']} without thinking; set effort to none")
+    args = ["--provider", row["provider"], "--model", row["model"], "--thinking", thinking]
+    if prompt is not None:
+        args += ["--append-system-prompt", prompt]
+    return {
+        "agent": f"{persona_name}-{secrets.token_hex(2)}",
+        "config": str(path),
+        "cwd": cwd,
+        "command": ["pi", *args, *words],
+        "timeout_ms": round(timeout * 1000),
+    }
+
+
+def _herdr_result(result: subprocess.CompletedProcess, what: str) -> dict:
+    text = (result.stdout if result.returncode == 0 else result.stderr or result.stdout).strip()
+    try:
+        body = json.loads(text)
+    except (ValueError, RecursionError):
+        body = None
+    if result.returncode or not isinstance(body, dict) or body.get("error") or not isinstance(body.get("result"), dict):
+        error = body.get("error") if isinstance(body, dict) else None
+        detail = error.get("message") if isinstance(error, dict) else error
+        raise SpawnError(f"{what} failed: {_snapshot_reason(detail or text or f'exit {result.returncode}')}")
+    return body["result"]
+
+
+def spawn(plan: dict[str, object]) -> tuple[int, dict[str, object]]:
+    """Open a tab in the caller's directory and start pi in its pane. Returns (exit status, JSON)."""
+    create = ["herdr", "tab", "create"]
+    if os.environ.get("HERDR_WORKSPACE_ID"):
+        create += ["--workspace", os.environ["HERDR_WORKSPACE_ID"]]
+    create += ["--cwd", plan["cwd"], "--no-focus"]
+    created = _herdr_result(_run(create, CALL_TIMEOUT, "herdr tab create"), "herdr tab create")
+    tab, pane = (
+        part.get(key) if isinstance(part, dict) else None
+        for part, key in ((created.get("tab"), "tab_id"), (created.get("root_pane"), "pane_id"))
+    )
+    if not (isinstance(tab, str) and tab and isinstance(pane, str) and pane):
+        raise SpawnError("herdr tab create did not return a tab and its root pane")
+    out = {"agent": plan["agent"], "tab": tab, "pane": pane, "command": plan["command"]}
+    start = [
+        "herdr", "agent", "start", plan["agent"], "--kind", "pi", "--pane", pane,
+        "--timeout", str(plan["timeout_ms"]), "--", *plan["command"][1:],
+    ]
+    try:
+        # herdr enforces the start timeout; the margin covers its own exit.
+        started = _run(start, plan["timeout_ms"] / 1000 + CALL_TIMEOUT, "herdr agent start")
+        problem = None if started.returncode == 0 else f"exit {started.returncode}"
+        output = (started.stderr or "") + (started.stdout or "") if problem else ""
+    except SpawnError as exc:
+        problem, output = str(exc), ""
+    if problem is None:
+        return 0, out
+    _say(sys.stderr, f"sparks: herdr agent start failed ({_snapshot_reason(problem)}); tab {tab} is left open\n")
+    with contextlib.suppress(SpawnError):
+        read = _run(
+            ["herdr", "pane", "read", pane, "--source", "recent-unwrapped", "--lines", str(PANE_LINES)],
+            CALL_TIMEOUT, "herdr pane read",
+        )
+        if read.returncode == 0:
+            output += read.stdout
+    if output:
+        _say(sys.stderr, output if output.endswith("\n") else output + "\n")
+    return 1, out
+
+
+def _bind_additional_flags(argv: list[str]) -> list[str]:
+    """Bind `--additional-flags <value>` as one argument: argparse would read a value
+    such as "--offline" as an option of its own."""
+    if argv[:2] != ["agent", "spawn"]:
+        return argv
+    bound, index = [], 0
+    while index < len(argv):
+        if argv[index] == "--additional-flags" and index + 1 < len(argv):
+            bound.append(f"--additional-flags={argv[index + 1]}")
+            index += 2
+        else:
+            bound.append(argv[index])
+            index += 1
+    return bound
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="sparks", description="Keep sparks and read or snapshot current herdr state."
+        prog="sparks",
+        description="Keep sparks, read or snapshot current herdr state, and spawn agent personas.",
     )
     commands = parser.add_subparsers(dest="command", required=True, metavar="<command>")
     add_parser = commands.add_parser(
@@ -1116,11 +1466,43 @@ def _parser() -> argparse.ArgumentParser:
         "view", nargs="?", default="summary", choices=tuple(QUERY_FILTERS),
         help="table to print (default: summary)",
     )
+    agent = commands.add_parser(
+        "agent", help="agent personas from .sparks/agents.toml",
+        description="Agent personas from .sparks/agents.toml.",
+    )
+    agent_actions = agent.add_subparsers(dest="action", required=True, metavar="<action>")
+    spawn_parser = agent_actions.add_parser(
+        "spawn", help="launch a persona as a pi session in a new herdr tab",
+        description=SPAWN_DESCRIPTION, epilog=SPAWN_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    spawn_parser.add_argument("type", metavar="<type>", help="persona name in .sparks/agents.toml")
+    spawn_parser.add_argument(
+        "--additional-flags", action=_Once, metavar="<string>",
+        help="pi flags appended to the command, split on whitespace; pass once",
+    )
+    spawn_parser.add_argument(
+        "--timeout", type=_start_timeout, default=START_TIMEOUT, metavar="<seconds>",
+        help="herdr agent start timeout, more than 3 and at most 300 (default: 30)",
+    )
+    spawn_parser.add_argument(
+        "--dry-run", action="store_true", help="print the plan; call no herdr command",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    argv = sys.argv[1:] if argv is None else argv
+    args = _parser().parse_args(_bind_additional_flags(argv))
+    if args.command == "agent":
+        try:
+            plan = spawn_plan(args.type, args.additional_flags, args.timeout)
+            code, output = (0, plan) if args.dry_run else spawn(plan)
+        except SpawnError as exc:
+            _say(sys.stderr, f"sparks: {exc}\n")
+            return 1
+        _say(sys.stdout, json.dumps(output, ensure_ascii=False) + "\n")
+        return code
     if args.command == "herdr":
         try:
             if args.action == "snapshot":
