@@ -96,7 +96,7 @@ Filters are exact and combine. A filter that does not apply to the view is a usa
 
 `bin/sparks herdr tabs [--db <path>]` enumerates active tabs per workspace from that snapshot. It does not call herdr and does not write the database. The path uses the same precedence as `sparks herdr snapshot`.
 
-The dependency strategy is in the root type S spark: stdlib `sqlite3` only. SQL counts stored tabs and done tabs per workspace. Active is arithmetic, stored minus done. A tab is active when `agent_status` is not exactly `done`. No SQL driver, ORM, or query package is added. `jsonschema` stays on `sparks add` and is not imported on this path.
+The dependency strategy is in the root type S spark: stdlib `sqlite3` only. SQL counts stored tabs and done tabs per workspace. Active is arithmetic, stored minus done. A tab is active when `agent_status` is not exactly `done`. No SQL driver, ORM, or query package is added. `jsonschema` is imported only by `sparks add`. To avoid even resolving that package, launch with `python3 path/to/sparks/bin/sparks herdr tabs` (Python >= 3.11), also valid for snapshot and query. Directly executing `bin/sparks`, or using `uv run --script`, still resolves the script's declared `jsonschema` dependency; lazy imports alone do not bypass uv.
 
 Success prints the snapshot time, then one `ws` line per workspace and one `tab` line per active tab:
 
@@ -243,7 +243,19 @@ Credits for the people who shaped this plugin. This is a hall of fame, not a foo
 - [Dex (@dexhorthy)](https://github.com/dexhorthy), author of `show-me`, for polish. HumanLayer's license is in `skills/LICENSE-humanlayer`.
 - [Yann Collet (@Cyan4973)](https://github.com/Cyan4973), who created [xxHash](https://github.com/Cyan4973/xxHash). `spark_hash.py` is a Python port of its XXH64 algorithm.
 
-Plaques, public profile photos, Pen Badge stitching for intellectual contributors, and Dex's Onyx Badge are not in this change. sol 6.1 owns that work. Do not invent photos.
+### Pen Badge · intellectual contribution
+
+| Lauren Tan | Matt Pocock |
+| --- | --- |
+| [![Lauren Tan — Pen Badge; public illustrated avatar](docs/assets/hall-of-fame/poteto.svg)](https://github.com/poteto) | [![Matt Pocock — Pen Badge; public GitHub profile image](docs/assets/hall-of-fame/mattpocock.svg)](https://github.com/mattpocock) |
+| Brian Madison | Yann Collet |
+| [![Brian Madison — Pen Badge; public GitHub profile image](docs/assets/hall-of-fame/bmadcode.svg)](https://github.com/bmadcode) | [![Yann Collet — Pen Badge; monogram only, photograph needed](docs/assets/hall-of-fame/Cyan4973.svg)](https://github.com/Cyan4973) |
+
+### Onyx Badge · polish
+
+[![Dex — Onyx Badge for show-me; public GitHub profile image](docs/assets/hall-of-fame/dexhorthy.svg)](https://github.com/dexhorthy)
+
+These original vector frames use sourced public GitHub profile images, not invented photographs. Lauren's avatar is illustrated; Yann's plaque has only a monogram. Real photos for those two and photo-generated finishing remain open on [#85](https://github.com/gdsrvnt/sparks/issues/85). No image-generation tool was available for this pass. [Image sources, rights and rebuild instructions](docs/assets/hall-of-fame/README.md) are recorded separately; code licenses do not grant photo rights.
 
 ## License
 

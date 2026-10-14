@@ -47,7 +47,8 @@ from spark_id import Spark, SparkFileError, load  # noqa: E402
 DEFAULT_PATH = Path("sparks.json")
 LOCK_NAME = ".sparks.lock"
 SCHEMA = json.loads((ROOT / "sparks.schema.json").read_text(encoding="utf-8"))
-# jsonschema is an add-only dependency. Herdr state must not import it.
+# Only add imports jsonschema. For a stdlib-only launch, use python3 bin/sparks:
+# the uv shebang still resolves all dependencies declared in script metadata.
 VALIDATOR = None
 SHOWN_PROBLEMS = 3  # schema problems listed in one message
 PROBLEM_CHARS = 200  # a longer problem is cut in the middle
@@ -1160,7 +1161,7 @@ def tabs(db: str | None = None) -> str:
         with contextlib.suppress(sqlite3.Error, OSError):
             connection.close()
     lines = [
-        f"tabs {meta['captured_at']} workspaces={len(rendered)} active={total_active} db={_show(path)}"
+        f"tabs {_tabs_field(meta['captured_at'])} workspaces={len(rendered)} active={total_active} db={_show(path)}"
     ]
     for workspace_id, label, stored, done, active, listed in rendered:
         lines.append("\t".join((

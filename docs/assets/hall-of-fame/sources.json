@@ -1,0 +1,69 @@
+[
+  {
+    "name": "Lauren Tan",
+    "handle": "poteto",
+    "badge": "Pen",
+    "title": "Playbooks & pstack",
+    "subtitle": "Intellectual contribution",
+    "image_kind": "Public GitHub avatar (illustrated, not a photograph)",
+    "profile": "https://github.com/poteto",
+    "source": "https://avatars.githubusercontent.com/u/1390709?v=4&s=400",
+    "retrieved": "2026-10-14",
+    "file": "profiles/poteto.png",
+    "mime": "image/png",
+    "sha256": "6286aae885916ea76e48e6286109d2d8362b3289b721f5d0ca425266419402b2"
+  },
+  {
+    "name": "Matt Pocock",
+    "handle": "mattpocock",
+    "badge": "Pen",
+    "title": "Human IS the loop",
+    "subtitle": "Ideation, specs & implementation",
+    "image_kind": "Public GitHub profile image",
+    "profile": "https://github.com/mattpocock",
+    "source": "https://avatars.githubusercontent.com/u/28293365?v=4&s=400",
+    "retrieved": "2026-10-14",
+    "file": "profiles/mattpocock.png",
+    "mime": "image/png",
+    "sha256": "fb69064105175eaf219100f84753ee9a79fb9b2bcd5b15e149210a467d45bcf3"
+  },
+  {
+    "name": "Brian Madison",
+    "handle": "bmadcode",
+    "badge": "Pen",
+    "title": "BMad Method",
+    "subtitle": "Planning & delivery workflows",
+    "image_kind": "Public GitHub profile image",
+    "profile": "https://github.com/bmadcode",
+    "source": "https://avatars.githubusercontent.com/u/195515201?v=4&s=400",
+    "retrieved": "2026-10-14",
+    "file": "profiles/bmadcode.png",
+    "mime": "image/png",
+    "sha256": "c96bf352bef032281cd7af6ae82af908951a39f5c918ee9705c0a5c30f8befff"
+  },
+  {
+    "name": "Dex",
+    "handle": "dexhorthy",
+    "badge": "Onyx",
+    "title": "show-me",
+    "subtitle": "Polish & visual craft",
+    "image_kind": "Public GitHub profile image",
+    "profile": "https://github.com/dexhorthy",
+    "source": "https://avatars.githubusercontent.com/u/3730605?v=4&s=400",
+    "retrieved": "2026-10-14",
+    "file": "profiles/dexhorthy.jpg",
+    "mime": "image/jpeg",
+    "sha256": "3014421b78ee72242d8beb60a17a7ddc3806b28239bad69d6fc48baa44eafe5f"
+  },
+  {
+    "name": "Yann Collet",
+    "handle": "Cyan4973",
+    "badge": "Pen",
+    "title": "xxHash / XXH64",
+    "subtitle": "Dependency-free hashing substrate",
+    "image_kind": "Monogram only — photograph still needed",
+    "profile": "https://github.com/Cyan4973",
+    "retrieved": "2026-10-14",
+    "note": "GitHub profile currently uses an identicon, not a portrait; no photo is invented."
+  }
+]

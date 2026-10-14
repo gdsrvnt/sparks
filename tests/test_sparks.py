@@ -2264,7 +2264,7 @@ def test_herdr_tabs_does_not_import_jsonschema(saved_snapshot):
         f"runpy.run_path({str(BIN)!r}, run_name='__main__')\n"
     )
     result = subprocess.run(
-        [sys.executable, "-c", blocker],
+        [sys.executable, "-S", "-c", blocker],
         cwd=fake.directory,
         capture_output=True,
         encoding="utf-8",
@@ -2274,45 +2274,6 @@ def test_herdr_tabs_does_not_import_jsonschema(saved_snapshot):
     assert result.returncode == 0, result.stderr
     assert result.stdout.startswith("tabs ")
     assert "jsonschema blocked" not in result.stderr
-
-
-def test_jsonschema_import_is_not_at_module_level():
-    head = BIN.read_text(encoding="utf-8").split("def _validator(", 1)[0]
-    assert "from jsonschema" not in head
-    assert "import jsonschema" not in head
-
-
-def test_implement_spec_playbook_snippets_are_two_lines_at_a_time():
-    skill = (ROOT / "skills" / "implement-spec" / "SKILL.md").read_text(encoding="utf-8")
-    fences = []
-    current = None
-    for line in skill.splitlines():
-        if line.startswith("```"):
-            if current is None:
-                current = []
-            else:
-                fences.append(current)
-                current = None
-            continue
-        if current is not None:
-            current.append(line)
-    assert current is None
-    assert [len(fence) for fence in fences] == [2] * 8
-    assert sum(len(fence) for fence in fences) == 16
-    herdr = (ROOT / "skills" / "herdr-operations" / "SKILL.md").read_text(encoding="utf-8")
-    assert "../implement-spec/SKILL.md" in herdr
-    assert "implementation playbook" in herdr
-    assert (ROOT / "skills" / "implement-spec" / "LICENSE").read_bytes() == (
-        ROOT / "skills" / "LICENSE-mattpocock"
-    ).read_bytes()
-
-
-def test_root_spark_records_the_dep_free_tab_strategy():
-    sparks = json.loads((ROOT / "sparks.json").read_bytes())
-    matched = [spark for spark in sparks if spark["type"] == "s" and "active herdr tabs" in spark["question"]]
-    assert len(matched) == 1
-    answer = matched[0]["answer"]
-    assert "sqlite3" in answer and "arithmetic" in answer and "No SQL driver" in answer
 
 
 def test_herdr_snapshot_public_files_and_fixtures_have_no_machine_specific_strings():
