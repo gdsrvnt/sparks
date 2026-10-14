@@ -172,5 +172,11 @@
     "question": "How should the sparks workflow move one level of abstraction up so more agents can be managed at roughly the same human cost?",
     "answer": "\"...we're really trying to move one level of abstraction up from our... current position where our GrokBot goes to where we are sitting now, and be worked... And then we go an even higher level such that more agents can be managed practically with roughly the same amount of... human cost, although obviously this will require the refinement of certain assets of human capital such as... being able to write specs verbally or to verbally dictate specs in addition to... spatial reasoning, in addition to the ability to draw diagrams and read, write quickly with a pen and paper. So the Sparks style of working kind of demands these things from the human, but there's enormous improvements in agent compliance the first time around and adherence the first time around, and mergeability of PRs with conventions that make sense per project. So it's really a game of making the agents better at context switching.\"",
     "id": "ac929c41f5083eb5"
+  },
+  {
+    "type": "p",
+    "question": "What is the practical path for implementing the sparks workflow as airtight programmatic scripts?",
+    "answer": "...we're gonna start now working on kind of a new architecture that I'm imagining for... this product... simple and robust scripts that execute all of this in either Py or PyDurable as a harness, most likely Py first... and we can even delegate the orchestration of the workflow as it proceeds to an orchestrator agent running in Py on a free, big, relatively small, smart model like... Nemotron 3... 550B so that we're not overloading our GrokBots from the large machine at hand.",
+    "id": "574127942a99b719"
   }
 ]
