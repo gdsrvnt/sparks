@@ -1,0 +1,11 @@
+# Notice
+
+SKILL.md is a copy of the `subagent` skill that Mario Zechner (@badlogic) published as a gist: https://gist.github.com/badlogic/d36e325248b68414e1c6528c6ed6b525
+
+It was copied unchanged from gist revision `3d7d74a92bef0ff41827df1db3a0f49e0f5b1e4b` (raw: https://gist.githubusercontent.com/badlogic/d36e325248b68414e1c6528c6ed6b525/raw/38b42cb898a3cad0f3da8f9dd6c865c560b71405/SKILL.md).
+
+Mario Zechner wrote the skill. The gist states no license. Until it does, this copy is kept here with its source for reference only.
+
+The skill runs `wait.ts` from the directory that holds SKILL.md. That script is not in the gist and is not copied here.
+
+This is a community skill in the house library under `docs/house`. It is not a plugin skill, so Cursor does not load it from `skills/`.
