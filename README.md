@@ -30,7 +30,7 @@ Discovery uses the default folders. The manifest does not set custom component p
 
 | Component | Path | Status |
 | --- | --- | --- |
-| Skills | `skills/` | `sparks-discuss`, `sparks-domain`, `sparks-postcall`, `spark-voice`, `spark-verification`, `study`, and `herdr-operations`; `ketchup`, `how`, `why`, `bro`, `create-verification-skill`, and `maintain-verification-skill` from poteto's pstack; and `show-me` from HumanLayer. See `THIRD_PARTY_NOTICES.md`. |
+| Skills | `skills/` | `sparks-discuss`, `sparks-domain`, `sparks-postcall`, `spark-voice`, `spark-verification`, `study`, `herdr-operations`, and `implement-spec` (the implementation playbook `herdr-operations` follows); `ketchup`, `how`, `why`, `bro`, `create-verification-skill`, and `maintain-verification-skill` from poteto's pstack; and `show-me` from HumanLayer. See `THIRD_PARTY_NOTICES.md`. |
 | Rules | `rules/` | `blocker-clearing`: when work is blocked on you, the agent asks one multiple-choice question with options that each clear the blocker, a free-text field, and a stop-and-deliberate option that runs `sparks-discuss` and records the outcome as a spark. `post-call-self-healing`: after every voice call ends, the agent runs the `sparks-postcall` self-healing procedure in full (opens `skills/sparks-postcall/SKILL.md`, or asks you to run `/sparks-postcall`). The post-call protocol lives only in `sparks-postcall`, not in `spark-voice`. |
 | Agents | `agents/` | Not included. |
 | Commands | `commands/` | Not included. |
@@ -91,6 +91,22 @@ The path uses the same precedence as `sparks herdr snapshot`. A missing database
 `summary` prints the snapshot time and stored counts, then agent status counts, then one line for each agent whose status is not exactly `done`, even with filters. The other views print that table only. Columns are the parsed list fields, not the stored fetch JSON. `--raw` prints each stored fetch object on its own line instead; it does not apply to `summary`.
 
 Filters are exact and combine. A filter that does not apply to the view is a usage error (exit 2). Zero matches still exit 0.
+
+### `sparks herdr tabs`
+
+`bin/sparks herdr tabs [--db <path>]` enumerates active tabs per workspace from that snapshot. It does not call herdr and does not write the database. The path uses the same precedence as `sparks herdr snapshot`.
+
+The dependency strategy is in the root type S spark: stdlib `sqlite3` only. SQL counts stored tabs and done tabs per workspace. Active is arithmetic, stored minus done. A tab is active when `agent_status` is not exactly `done`. No SQL driver, ORM, or query package is added. `jsonschema` stays on `sparks add` and is not imported on this path.
+
+Success prints the snapshot time, then one `ws` line per workspace and one `tab` line per active tab:
+
+```text
+tabs <captured_at> workspaces=<n> active=<n> db=<path>
+ws\t<workspace_id>\t<label>\t<stored>\t<done>\t<active>
+tab\t<tab_id>\t<label>\t<status>
+```
+
+`active` on the `ws` line is stored minus done. The header `active` is the sum of those values. A missing database, pending journal data, or a snapshot that changes during the read exits 1 with one stderr line and creates nothing. Exit 2 is a usage error.
 
 ## Background
 
@@ -217,14 +233,20 @@ spark also helps to keep a project on the rails because it encompasses the five 
 
 Every issue and every open pull request needs exactly one priority label: `low`, `medium`, `high`, or `urgent`. Draft PRs are exempt. See [CONTRIBUTING.md](CONTRIBUTING.md). Pull request text: [AGENTS.md](AGENTS.md).
 
-## Credits
+## Hall of fame
 
-- [Lauren Tan (@poteto)](https://github.com/poteto), who wrote the pstack skills in this plugin: `ketchup`, `how`, `why`, `bro`, `create-verification-skill`, and `maintain-verification-skill`. Those last two are bundled for direct use; `spark-verification` is a separate read-only skill that checks a PR or branch against `sparks.json`.
-- [Matt Pocock (@mattpocock)](https://github.com/mattpocock), whose `grilling` skill is the basis for the grilling core of `sparks-discuss`, whose `domain-modeling` skill is the basis for `sparks-domain`, and whose `to-spec` skill is the basis for `sparks-postcall`.
+Credits for the people who shaped this plugin. This is a hall of fame, not a footnote.
+
+- [Lauren Tan (@poteto)](https://github.com/poteto), who wrote the pstack skills in this plugin: `ketchup`, `how`, `why`, `bro`, `create-verification-skill`, and `maintain-verification-skill`. Those last two are bundled for direct use; `spark-verification` is a separate read-only skill that checks a PR or branch against `sparks.json`. She set the playbook convention used for this plugin's most sophisticated skills.
+- [Matt Pocock (@mattpocock)](https://github.com/mattpocock), whose `grilling` skill is the basis for the grilling core of `sparks-discuss`, whose `domain-modeling` skill is the basis for `sparks-domain`, whose `to-spec` skill is the basis for `sparks-postcall`, and whose `implement-spec` skill is the implementation playbook for `herdr-operations`. He set the paradigm of driving ideation through active human deliberation ("Human IS the loop", HITL) and pushing AFK work to just after the human session. sparks diverges slightly by leveraging Grok Bot's initiative, so those two can happen orthogonally.
+- [Brian Madison (@bmadcode)](https://github.com/bmadcode), who created [BMad Method](https://github.com/bmad-code-org/BMAD-METHOD) (BMad Code, LLC). The license is in `skills/LICENSE-bmad`. His name is the public name on [bmadcode.com/about](https://bmadcode.com/about); the BMAD-METHOD README does not print it.
+- [Dex (@dexhorthy)](https://github.com/dexhorthy), author of `show-me`, for polish. HumanLayer's license is in `skills/LICENSE-humanlayer`.
 - [Yann Collet (@Cyan4973)](https://github.com/Cyan4973), who created [xxHash](https://github.com/Cyan4973/xxHash). `spark_hash.py` is a Python port of its XXH64 algorithm.
+
+Plaques, public profile photos, Pen Badge stitching for intellectual contributors, and Dex's Onyx Badge are not in this change. sol 6.1 owns that work. Do not invent photos.
 
 ## License
 
 MIT. Copyright (c) 2026 gdsrvnt. See `LICENSE`. That license covers this project's own work.
 
-Third-party skills keep their authors' copyright and MIT licenses. Lauren Tan's skills are MIT, Copyright (c) 2026 Lauren Tan. `create-verification-skill` and `maintain-verification-skill` each carry her license in a `LICENSE` file next to their `SKILL.md`, and her other skills share `skills/LICENSE-poteto`. Matt Pocock's license is in `skills/LICENSE-mattpocock`, and `sparks-domain` and `sparks-postcall` each also carry it in a `LICENSE` file next to their `SKILL.md`. HumanLayer's license is in `skills/LICENSE-humanlayer`. `spark_hash.py` ports XXH64 from Yann Collet's xxHash, BSD 2-Clause, Copyright (c) 2012-2021 Yann Collet; its license is in `LICENSE-xxhash`. See `THIRD_PARTY_NOTICES.md`.
+Third-party skills keep their authors' copyright and MIT licenses. Lauren Tan's skills are MIT, Copyright (c) 2026 Lauren Tan. `create-verification-skill` and `maintain-verification-skill` each carry her license in a `LICENSE` file next to their `SKILL.md`, and her other skills share `skills/LICENSE-poteto`. Matt Pocock's license is in `skills/LICENSE-mattpocock`, and `sparks-domain`, `sparks-postcall`, and `implement-spec` each also carry it in a `LICENSE` file next to their `SKILL.md`. HumanLayer's license is in `skills/LICENSE-humanlayer`. BMad Method's license is in `skills/LICENSE-bmad` (MIT, Copyright (c) 2025 BMad Code, LLC). `spark_hash.py` ports XXH64 from Yann Collet's xxHash, BSD 2-Clause, Copyright (c) 2012-2021 Yann Collet; its license is in `LICENSE-xxhash`. See `THIRD_PARTY_NOTICES.md`.

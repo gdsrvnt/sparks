@@ -36,7 +36,13 @@ It's licensed under the MIT License, Copyright (c) 2026 HumanLayer. The full lic
 
 `skills/sparks-postcall/` adapts the `to-spec` skill from [mattpocock/skills](https://github.com/mattpocock/skills/tree/49dd158d1076134a641b33efb035946536778336/skills/engineering/to-spec) at commit `49dd158d1076134a641b33efb035946536778336`. It keeps the rule to synthesize instead of interviewing and the core of the spec template: Problem Statement, Solution, User Stories, Implementation Decisions, Testing Decisions, and Out of Scope. It adds Source, Relay divergences, Requirements, and Open Questions, and drops Further Notes, the user-story example, and the prototype-snippet exception. It drops the step that checks test seams with the user and the publish to an issue tracker with the `ready-for-agent` label. It reads a call transcript instead of the live conversation, grounds requirements in verbatim quotes, and adds verification, gap implementation, review, and merge steps. The skill's `agents/` folder is not copied. The folder also holds his `LICENSE` next to its `SKILL.md`.
 
-All three are licensed under the MIT License, Copyright (c) 2026 Matt Pocock. The full license text is in [`skills/LICENSE-mattpocock`](skills/LICENSE-mattpocock).
+`skills/implement-spec/` adapts the `implement-spec` skill from [mattpocock/skills](https://github.com/mattpocock/skills/tree/49dd158d1076134a641b33efb035946536778336/skills/engineering/implement-spec) at commit `49dd158d1076134a641b33efb035946536778336`. It keeps the integration branch, the task-graph frontier, context pointers, and the implementer, merger, and code-review steps. It drops hedges and generic issue-tracker branches, including `/setup-matt-pocock-skills`. Kept sentences add at most two words. It adds a herdr runtime (16 lines of command snippets, two at a time) and workspace cleanup after a big job. The skill's `agents/` folder is not copied. The folder holds his `LICENSE` next to its `SKILL.md`. `herdr-operations` follows this file as its implementation playbook.
+
+All four are licensed under the MIT License, Copyright (c) 2026 Matt Pocock. The full license text is in [`skills/LICENSE-mattpocock`](skills/LICENSE-mattpocock).
+
+## BMad Method
+
+[`skills/LICENSE-bmad`](skills/LICENSE-bmad) is the MIT license from [bmad-code-org/BMAD-METHOD](https://github.com/bmad-code-org/BMAD-METHOD) at commit `8f0d50e1817fdd8fcf05a20c524218222d13cd8d`, Copyright (c) 2025 BMad Code, LLC. `CONTRIBUTORS.md` and `TRADEMARK.md` are not copied. No BMad skill or workflow is copied. The license is here so later spec work can credit BMad. Brian Madison ([@bmadcode](https://github.com/bmadcode)) created BMad Method.
 
 ## subagent skill by Mario Zechner (@badlogic)
 

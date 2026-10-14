@@ -10,5 +10,11 @@
     "question": "What is the best place to find pi documentation when working on sparks functionality that interfaces with it through herdr?",
     "answer": "docs/house/pi",
     "id": "2944f552293027c2"
+  },
+  {
+    "type": "s",
+    "question": "How does sparks enumerate active herdr tabs per workspace without adding a dependency?",
+    "answer": "sparks herdr tabs reads the shared herdr snapshot with the stdlib sqlite3 module only. SQL counts stored tabs and done tabs per workspace. Active is arithmetic: stored minus done. A tab is active when agent_status is not exactly done. jsonschema remains an add-only dependency and is not imported on this path. No SQL driver, ORM, or query package is added.",
+    "id": "38896fae32b5cfce"
   }
 ]

@@ -12,6 +12,8 @@ The spark shape comes from ``sparks.schema.json``. ``spark_id.py`` derives
 the id (XXH64 via the dependency-free ``spark_hash.py``), and add stores it
 as the spark's optional ``id`` key.
 Both modules are read from the repository root, the parent of ``bin/``.
+``sparks herdr tabs`` enumerates active tabs per workspace from that snapshot
+with stdlib sqlite3 only. SQL counts stored and done tabs. Active is arithmetic.
 """
 
 import argparse
@@ -32,8 +34,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TextIO
 
-from jsonschema.validators import validator_for
-
 try:
     import fcntl
 except ImportError:  # Windows: no lock, see _locked
@@ -47,7 +47,8 @@ from spark_id import Spark, SparkFileError, load  # noqa: E402
 DEFAULT_PATH = Path("sparks.json")
 LOCK_NAME = ".sparks.lock"
 SCHEMA = json.loads((ROOT / "sparks.schema.json").read_text(encoding="utf-8"))
-VALIDATOR = validator_for(SCHEMA)(SCHEMA)
+# jsonschema is an add-only dependency. Herdr state must not import it.
+VALIDATOR = None
 SHOWN_PROBLEMS = 3  # schema problems listed in one message
 PROBLEM_CHARS = 200  # a longer problem is cut in the middle
 UNVERIFIED = 3  # exit status: written, but reading it back did not give what was written
@@ -158,13 +159,22 @@ def _clip(text: str) -> str:
     return f"{text[:keep]} ... {text[-keep:]}"
 
 
+def _validator():
+    """Load jsonschema on the add path only, so herdr state stays stdlib."""
+    global VALIDATOR
+    if VALIDATOR is None:
+        from jsonschema.validators import validator_for
+        VALIDATOR = validator_for(SCHEMA)(SCHEMA)
+    return VALIDATOR
+
+
 def _schema_problems(instance: object, skip: int = 0) -> str:
     """sparks.schema.json problems as ``where: message; ...``, or "" if there are none.
 
     skip drops leading path parts, such as the index of a spark checked alone.
     """
     try:
-        errors = list(VALIDATOR.iter_errors(instance))
+        errors = list(_validator().iter_errors(instance))
     except RecursionError:
         return "JSON nested too deeply"
     shown = []
@@ -388,6 +398,18 @@ $XDG_DATA_HOME/sparks/herdr-state.sqlite when XDG_DATA_HOME is non-empty,
 otherwise ~/.local/share/sparks/herdr-state.sqlite.
 
 exit status: 0 snapshot committed; 1 failure; 2 usage error.
+"""
+
+TABS_DESCRIPTION = """\
+Enumerate active tabs per workspace from the shared herdr snapshot.
+
+Does not call herdr and does not write the database. SQL counts stored tabs
+and done tabs per workspace (stdlib sqlite3 only; no new dependency).
+Active is arithmetic: stored minus done. A tab is active when agent_status
+is not exactly done. Lists those tabs. Same path rules as snapshot.
+Pending journal data is refused; retry after the snapshot writer closes.
+
+exit status: 0 printed; 1 failure; 2 usage error.
 """
 
 # In schema order. "id" is a required, non-empty string; other fields are nullable.
@@ -1061,6 +1083,98 @@ def query(db: str | None = None, view: str = "summary", status: str | None = Non
     return header if not body else f"{header}\n{body}"
 
 
+def _tabs_active(stored: int, done: int) -> int:
+    """Active tabs are arithmetic on SQL counts, not a third count."""
+    active = stored - done
+    if active < 0:
+        raise SnapshotError("active tab arithmetic was negative")
+    return active
+
+
+def _tabs_field(value: object) -> str:
+    return "" if value is None else _show(value)
+
+
+def _tabs_groups(connection: sqlite3.Connection) -> list[tuple]:
+    """SQL counts per workspace, including tab rows with no workspace row."""
+    workspaces = connection.execute(
+        """SELECT w.workspace_id AS workspace_id, w.label AS label,
+                  COUNT(t.tab_id) AS stored_tabs,
+                  COALESCE(SUM(CASE WHEN t.tab_id IS NOT NULL AND t.agent_status = 'done'
+                               THEN 1 ELSE 0 END), 0) AS done_tabs
+           FROM workspaces w
+           LEFT JOIN tabs t ON t.workspace_id = w.workspace_id
+           GROUP BY w.workspace_id, w.label, w.number
+           ORDER BY w.number, w.workspace_id"""
+    ).fetchall()
+    orphans = connection.execute(
+        """SELECT t.workspace_id AS workspace_id,
+                  COUNT(*) AS stored_tabs,
+                  COALESCE(SUM(CASE WHEN t.agent_status = 'done' THEN 1 ELSE 0 END), 0) AS done_tabs
+           FROM tabs t
+           WHERE NOT EXISTS (
+               SELECT 1 FROM workspaces w WHERE w.workspace_id = t.workspace_id
+           )
+           GROUP BY t.workspace_id
+           ORDER BY t.workspace_id"""
+    ).fetchall()
+    return [(row, False) for row in workspaces] + [(row, True) for row in orphans]
+
+
+def _tabs_list(connection: sqlite3.Connection, workspace_id: str) -> list[sqlite3.Row]:
+    return connection.execute(
+        """SELECT tab_id, label, agent_status FROM tabs
+           WHERE workspace_id = ?
+             AND (agent_status IS NULL OR agent_status != 'done')
+           ORDER BY number, tab_id""",
+        (workspace_id,),
+    ).fetchall()
+
+
+def tabs(db: str | None = None) -> str:
+    """Enumerate active tabs per workspace. Does not call herdr or write."""
+    path = _snapshot_path(db)
+    connection, target, state = _open_query(path)
+    try:
+        meta = _query_meta(connection, path)
+        total_active = 0
+        rendered = []
+        for row, orphan in _tabs_groups(connection):
+            stored = int(row["stored_tabs"])
+            done = int(row["done_tabs"])
+            active = _tabs_active(stored, done)
+            total_active += active
+            listed = _tabs_list(connection, row["workspace_id"])
+            if len(listed) != active:
+                raise SnapshotError(f"{_show(path)}: active tab arithmetic does not match the list")
+            label = None if orphan else row["label"]
+            rendered.append((row["workspace_id"], label, stored, done, active, listed))
+        if _query_file_state(target) != state:
+            raise SnapshotError(f"{_show(path)}: snapshot changed while reading; retry")
+    except SnapshotError:
+        raise
+    except (sqlite3.Error, OSError, ValueError) as exc:
+        reason = _why(exc) if isinstance(exc, OSError) else str(exc)
+        raise SnapshotError(f"{_show(path)}: {_snapshot_reason(reason)}") from exc
+    finally:
+        with contextlib.suppress(sqlite3.Error, OSError):
+            connection.close()
+    lines = [
+        f"tabs {meta['captured_at']} workspaces={len(rendered)} active={total_active} db={_show(path)}"
+    ]
+    for workspace_id, label, stored, done, active, listed in rendered:
+        lines.append("\t".join((
+            "ws", _tabs_field(workspace_id), _tabs_field(label),
+            str(stored), str(done), str(active),
+        )))
+        for tab in listed:
+            lines.append("\t".join((
+                "tab", _tabs_field(tab["tab_id"]), _tabs_field(tab["label"]),
+                _tabs_field(tab["agent_status"]),
+            )))
+    return "\n".join(lines)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sparks", description="Keep sparks and read or snapshot current herdr state."
@@ -1116,6 +1230,13 @@ def _parser() -> argparse.ArgumentParser:
         "view", nargs="?", default="summary", choices=tuple(QUERY_FILTERS),
         help="table to print (default: summary)",
     )
+    tabs_parser = herdr_actions.add_parser(
+        "tabs", help="enumerate active tabs per workspace",
+        description=TABS_DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    tabs_parser.add_argument(
+        "--db", metavar="<path>", help="shared SQLite database path (same rules as snapshot)",
+    )
     return parser
 
 
@@ -1125,6 +1246,8 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if args.action == "snapshot":
                 output = snapshot(args.db)
+            elif args.action == "tabs":
+                output = tabs(args.db)
             else:
                 output = query(
                     args.db, args.view, status=args.status, workspace=args.workspace,

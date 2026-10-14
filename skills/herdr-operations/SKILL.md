@@ -22,11 +22,12 @@ herdr is a terminal multiplexer for coding agents. It organizes **workspaces** (
 
 1. **Look first.** Run `herdr status server`, `herdr workspace list` and `herdr pane list`, and tell the user what's already running before you change anything. Don't run bare `herdr`: it opens the interactive screen. Then refresh the shared herdr state database (see Shared herdr state) before you change anything.
 2. **One workspace per repository**, rooted at that repo's own clone. Clone it, or `git fetch` and fast-forward a clean default branch. Never do repo X's work in repo Y's clone.
-3. **Give each agent its own tab and a name that says its job.** One agent per tab, never split a tab for a second agent. Create a new tab (`herdr tab create`), then `herdr agent start <name> --kind <claude|pi> --pane <pane id>`. Name it for the task from the start, short, like `docs-audit` or `test-count`, never by harness like `docs-grok`. Names match `[a-z][a-z0-9_-]{0,31}`.
+3. **Give each agent its own tab and a name that says its job.** One agent per tab, never split a tab for a second agent. Create a new tab (`herdr tab create`), then `herdr agent start <name> --kind <claude|pi> --pane <pane id>`. Name it for the task from the start, short, like `docs-audit` or `test-count`, never by harness like `docs-grok`. Names match `[a-z][a-z0-9_-]{0,31}`. The parent agent owns the tabs it creates. A child owns only the ticket it was given.
 4. **Prompt, then confirm it took.** Use `herdr agent prompt <name> "<task>"` (add `--wait` only for short tasks). Then read the pane with `--source visible` and confirm the agent is actually working. An unregistered agent can be prompted with `herdr pane run <pane> "<task>"`. Don't put slash commands for skills that aren't installed in the prompt: Claude Code rejects unknown ones and runs nothing.
 5. **Check in proactively.** Don't wait to be asked. Run `scripts/herdr-heartbeat.sh` (relative to this skill's folder) in the background after launching agents, and read each agent when it wakes you. Refresh that database immediately before you start the heartbeat, and again when it wakes you, before you act on the report.
 6. **Read the result.** Use `herdr agent read <name> --source recent-unwrapped` once it's idle, or `--source visible` while it's working. A settled prompt doesn't prove the work happened. Have the agent write its result to a file, then check that file and the real diff or output before you report.
-7. **Clean up only what you created.** Close your own panes and tabs. Never close the user's.
+7. **Clean up only what you created.** Close your own panes and tabs. Never close the user's. After a big job wraps, prune workspaces: close a workspace only if you created it and it holds no user tabs. Refresh the shared database, then run `sparks herdr tabs` and confirm your tabs are gone.
+8. **Implement a spec from the playbook.** When the task is implementing a spec, open `../implement-spec/SKILL.md` and follow it. That file is the implementation playbook for this skill. Its license sits next to that `SKILL.md`.
 
 ## Shared herdr state
 
@@ -36,13 +37,16 @@ The database path is `--db`, or `SPARKS_HERDR_DB`, or otherwise `$XDG_DATA_HOME/
 
 Read it with `sparks herdr query`. That command does not call herdr and does not write the database. If it reports pending journal data, retry after the snapshot writer closes; do not checkpoint the database yourself. The default view prints the snapshot time, stored counts, status counts, and agents whose status is not exactly `done`. `sparks herdr query agents` lists every agent. Columns are the parsed list fields, tab-separated. Pass `--raw` only when the stored fetch object is required. Same path rules as snapshot.
 
+Enumerate active tabs with `sparks herdr tabs`. It does not call herdr and does not write the database. SQL counts stored tabs and done tabs per workspace. Active is arithmetic: stored minus done. A tab is active when `agent_status` is not exactly `done`. The command lists those tabs. Same path rules as snapshot. It uses stdlib `sqlite3` only.
+
 Refresh it:
 
 - when you look first, before you create, close, split, start, rename, or prompt
 - after each of those herdr changes
 - immediately before you start `scripts/herdr-heartbeat.sh`, and again when it wakes you, before you act on the report
+- after you prune tabs or workspaces at the end of a big job
 
-A snapshot from this turn is fresh enough to tell the user what is running. `sparks herdr query` prints that snapshot; it is not a live herdr response. It is not fresh enough, later, to choose an id for a mutation. Read ids from a herdr JSON response in the turn you use them. Never guess an id from an older database row. Repeat herdr's `agent_status` as given. Workspace and tab statuses are herdr's fields, not a rollup you recompute.
+A snapshot from this turn is fresh enough to tell the user what is running. `sparks herdr query` prints that snapshot; it is not a live herdr response. `sparks herdr tabs` prints active tabs from that snapshot; it is not a live herdr response either. It is not fresh enough, later, to choose an id for a mutation. Read ids from a herdr JSON response in the turn you use them. Never guess an id from an older database row. Repeat herdr's `agent_status` as given. Workspace and tab statuses are herdr's fields, not a rollup you recompute. The active count from `sparks herdr tabs` is arithmetic on those fields, not a new status.
 
 If the snapshot exits nonzero, say the one-line error and do not claim the database was updated. If herdr is missing or not running, follow "If herdr isn't running" below. A failed snapshot does not by itself send the work to another machine.
 
