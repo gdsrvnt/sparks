@@ -222,6 +222,7 @@ Every issue and every open pull request needs exactly one priority label: `low`,
 - [Lauren Tan (@poteto)](https://github.com/poteto), who wrote the pstack skills in this plugin: `ketchup`, `how`, `why`, `bro`, `create-verification-skill`, and `maintain-verification-skill`. Those last two are bundled for direct use; `spark-verification` is a separate read-only skill that checks a PR or branch against `sparks.json`.
 - [Matt Pocock (@mattpocock)](https://github.com/mattpocock), whose `grilling` skill is the basis for the grilling core of `sparks-discuss`, whose `domain-modeling` skill is the basis for `sparks-domain`, and whose `to-spec` skill is the basis for `sparks-postcall`.
 - [Yann Collet (@Cyan4973)](https://github.com/Cyan4973), who created [xxHash](https://github.com/Cyan4973/xxHash). `spark_hash.py` is a Python port of its XXH64 algorithm.
+- The Cerebras team, Isaac Tai, Daniel Kim, and Mike Gao, who wrote [How We Built Our Knowledge Base](https://www.cerebras.ai/blog/how-we-built-our-knowledge-base). A reference copy is in `docs/library/`, and it informs how sparks will consolidate context from multiple human contributors.
 
 ## License
 
