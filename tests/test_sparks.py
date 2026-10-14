@@ -2203,6 +2203,7 @@ def test_herdr_snapshot_help_is_noninteractive_and_keeps_sparks_add_help(fake_he
 @pytest.mark.parametrize("args", [
     ["herdr"], ["herdr", "unknown"], ["herdr", "snapshot", "--unknown"],
     ["herdr", "snapshot", "extra"], ["herdr", "snapshot", "--db"],
+    ["herdr", "query", "nope"], ["herdr", "query", "--db"],
 ])
 def test_herdr_usage_errors_do_not_call_herdr_or_write(fake_herdr, args):
     result = sparks(*args, cwd=fake_herdr.directory)
@@ -2231,6 +2232,453 @@ def test_herdr_snapshot_public_files_and_fixtures_have_no_machine_specific_strin
     for value in forbidden:
         assert value not in Path(__file__).read_text(encoding="utf-8")
         assert value not in json.dumps(herdr_rows(), ensure_ascii=False)
+
+
+def captured_at(path):
+    with snapshot_reader(path) as db:
+        return db.execute("SELECT captured_at FROM snapshot").fetchone()[0]
+
+
+def query_sparks(fake, *args):
+    return sparks("herdr", "query", *args, cwd=fake.directory)
+
+
+def test_herdr_query_summary_hides_done_and_keeps_short_columns(saved_snapshot):
+    fake, before = saved_snapshot
+    result = query_sparks(fake)
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    stamp = captured_at(fake.db)
+    assert result.stdout == (
+        f"snapshot {stamp} workspaces=3 tabs=4 panes=4 agents=2 db={fake.db}\n"
+        "agents blocked=0 idle=0 working=1 unknown=0 done=1\n"
+        "status\tname\tkind\tws\tpane\tcwd\n"
+        "working\tstate-review\tpi\tw3\tw3:pX\t/tmp/proj\n"
+    )
+    assert "completed-task" not in result.stdout
+    assert "session.jsonl" not in result.stdout
+    assert "term_" not in result.stdout
+    assert "04ede96e" not in result.stdout
+    fake.assert_calls(())
+    assert_snapshot_unchanged(fake, before)
+
+
+def test_herdr_query_agents_lists_done_and_sorts_status_then_name(saved_snapshot):
+    fake, before = saved_snapshot
+    result = query_sparks(fake, "agents")
+    stamp = captured_at(fake.db)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == (
+        f"snapshot {stamp} agents=2 db={fake.db}\n"
+        "status\tname\tkind\tws\tpane\tcwd\n"
+        "working\tstate-review\tpi\tw3\tw3:pX\t/tmp/proj\n"
+        "done\tcompleted-task\tclaude\tw1\tw1:pC\t/tmp/proj\n"
+    )
+    assert_snapshot_unchanged(fake, before)
+    fake.assert_calls(())
+
+
+def test_herdr_query_workspaces_tabs_and_panes_project_parsed_fields(saved_snapshot):
+    fake, _before = saved_snapshot
+    stamp = captured_at(fake.db)
+    workspaces = query_sparks(fake, "workspaces")
+    assert workspaces.stdout == (
+        f"snapshot {stamp} workspaces=3 db={fake.db}\n"
+        "id\tn\tstatus\ttabs\tpanes\tfocus\tactive\tlabel\n"
+        "w3\t3\tdone\t13\t13\t0\tw3:tX\tsparks\n"
+        "w1\t6\tdone\t2\t2\t1\tw1:tB\ttasks\n"
+        "w6\t7\tunknown\t1\t1\t0\tw6:t1\trestored\n"
+    )
+    tabs = query_sparks(fake, "tabs")
+    assert tabs.stdout == (
+        f"snapshot {stamp} tabs=4 db={fake.db}\n"
+        "id\tws\tn\tstatus\tpanes\tfocus\tlabel\n"
+        "w1:tB\tw1\t1\tdone\t1\t0\tcompleted-task\n"
+        "w1:t1\tw1\t2\tunknown\t1\t1\tshell\n"
+        "w3:tX\tw3\t29\tworking\t1\t0\tstate-review\n"
+        "w6:t1\tw6\t1\tunknown\t1\t0\trestored\n"
+    )
+    panes = query_sparks(fake, "panes")
+    assert panes.stdout == (
+        f"snapshot {stamp} panes=4 db={fake.db}\n"
+        "id\tws\ttab\tstatus\tkind\tname\tcwd\trestore\n"
+        "w1:p1\tw1\tw1:t1\tunknown\t\t\t/tmp/proj\t\n"
+        "w1:pC\tw1\tw1:tB\tdone\tclaude\tcompleted-task\t/tmp/proj\t\n"
+        "w3:pX\tw3\tw3:tX\tworking\tpi\tstate-review\t/tmp/proj\t\n"
+        "w6:p1\tw6\tw6:t1\tunknown\t\t\t/tmp/proj\tSaved directory is unavailable.\n"
+    )
+    assert "spark id hashing" not in panes.stdout
+    assert "\u03c0" not in panes.stdout
+    fake.assert_calls(())
+
+
+def test_herdr_query_raw_prints_the_stored_fetch_object(saved_snapshot):
+    fake, before = saved_snapshot
+    with snapshot_reader(fake.db) as db:
+        stored = db.execute("SELECT raw_json FROM agents WHERE name = 'state-review'").fetchone()[0]
+    result = query_sparks(fake, "agents", "--name", "state-review", "--raw")
+    stamp = captured_at(fake.db)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == f"snapshot {stamp} agents=1 of=2 db={fake.db}\n{stored}\n"
+    assert json.loads(stored)["name"] == "state-review"
+    assert "agent_session" in stored
+    assert_snapshot_unchanged(fake, before)
+
+
+def test_herdr_query_filters_are_exact_and_zero_matches_succeed(saved_snapshot):
+    fake, before = saved_snapshot
+    stamp = captured_at(fake.db)
+    working = query_sparks(fake, "agents", "--workspace", "w1", "--status", "done")
+    assert working.returncode == 0, working.stderr
+    assert "completed-task" in working.stdout
+    assert "state-review" not in working.stdout
+    assert working.stdout.startswith(f"snapshot {stamp} agents=1 of=2 db={fake.db}\n")
+    summary = query_sparks(fake, "--status", "done")
+    assert summary.returncode == 0, summary.stderr
+    assert f"agents=2 matched=1 db={fake.db}" in summary.stdout
+    assert "done=1" in summary.stdout
+    assert "completed-task" not in summary.stdout
+    empty = query_sparks(fake, "agents", "--name", "missing")
+    assert empty.returncode == 0, empty.stderr
+    assert empty.stdout == (
+        f"snapshot {stamp} agents=0 of=2 db={fake.db}\n"
+        "status\tname\tkind\tws\tpane\tcwd\n"
+    )
+    panes = query_sparks(fake, "panes", "--name", "state-review")
+    assert panes.returncode == 0, panes.stderr
+    assert "w3:pX" in panes.stdout and "w1:p1" not in panes.stdout
+    assert_snapshot_unchanged(fake, before)
+    fake.assert_calls(())
+
+
+@pytest.mark.parametrize(("args", "message"), [
+    (["workspaces", "--name", "state-review"], "--name does not apply to workspaces"),
+    (["tabs", "--name", "state-review"], "--name does not apply to tabs"),
+    (["workspaces", "--tab", "w3:tX"], "--tab does not apply to workspaces"),
+    (["--raw"], "--raw does not apply to summary"),
+    (["summary", "--raw"], "--raw does not apply to summary"),
+])
+def test_herdr_query_inapplicable_filters_are_usage_errors(saved_snapshot, args, message):
+    fake, before = saved_snapshot
+    result = query_sparks(fake, *args)
+    assert_rejected(result, message, code=2)
+    fake.assert_calls(())
+    assert_snapshot_unchanged(fake, before)
+
+
+def test_herdr_query_collapses_whitespace_and_quotes_odd_status_counts(fake_herdr):
+    rows = herdr_rows()
+    rows["agents"][0]["cwd"] = "a\nb\tc"
+    rows["agents"][0]["agent_status"] = "future status"
+    rows["workspaces"][0]["label"] = "\u03c0 spark"
+    fake_herdr.respond(rows)
+    assert fake_herdr.run().returncode == 0
+    fake_herdr.clear_calls()
+    agents = query_sparks(fake_herdr, "agents", "--status", "future status")
+    assert agents.returncode == 0, agents.stderr
+    assert "working" not in agents.stdout.splitlines()[-1]
+    assert agents.stdout.endswith("future status\tstate-review\tpi\tw3\tw3:pX\ta b c\n")
+    summary = query_sparks(fake_herdr)
+    assert '"future status"=1' in summary.stdout
+    assert "\u03c0 spark" in query_sparks(fake_herdr, "workspaces").stdout
+    fake_herdr.assert_calls(())
+
+
+def test_herdr_query_empty_inventory_is_a_header_only_table(fake_herdr):
+    fake_herdr.respond({table: [] for table in HERDR_TABLES})
+    assert fake_herdr.run().returncode == 0
+    fake_herdr.clear_calls()
+    result = query_sparks(fake_herdr)
+    stamp = captured_at(fake_herdr.db)
+    assert result.stdout == (
+        f"snapshot {stamp} workspaces=0 tabs=0 panes=0 agents=0 db={fake_herdr.db}\n"
+        "agents blocked=0 idle=0 working=0 unknown=0 done=0\n"
+        "status\tname\tkind\tws\tpane\tcwd\n"
+    )
+    fake_herdr.assert_calls(())
+
+
+def test_herdr_query_missing_database_creates_nothing(fake_herdr):
+    target = fake_herdr.directory / "missing" / "nested" / "state.sqlite"
+    result = query_sparks(fake_herdr, "--db", str(target))
+    assert_rejected(result, "no snapshot")
+    assert str(target) in result.stderr
+    assert not target.parent.exists()
+    assert not fake_herdr.db.exists()
+    fake_herdr.assert_calls(())
+
+
+def test_herdr_query_bad_timeout_does_not_matter(saved_snapshot):
+    fake, before = saved_snapshot
+    fake.monkeypatch.setenv("SPARKS_HERDR_TIMEOUT", "nope")
+    result = query_sparks(fake, "agents")
+    assert result.returncode == 0, result.stderr
+    assert "state-review" in result.stdout
+    fake.assert_calls(())
+    assert_snapshot_unchanged(fake, before)
+
+
+def test_herdr_query_unsupported_schema_and_count_mismatch_change_nothing(fake_herdr):
+    fake_herdr.seed()
+    fake_herdr.clear_calls()
+    with contextlib.closing(sqlite3.connect(fake_herdr.db)) as db:
+        db.execute("UPDATE meta SET value = '2' WHERE key = 'schema_version'")
+        db.commit()
+    refused = fake_herdr.db.read_bytes()
+    result = query_sparks(fake_herdr)
+    assert_rejected(result, "unsupported schema_version 2")
+    assert fake_herdr.db.read_bytes() == refused
+    with contextlib.closing(sqlite3.connect(fake_herdr.db)) as db:
+        db.execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'")
+        db.execute("UPDATE snapshot SET agent_count = 0")
+        db.commit()
+    mismatched = database_dump(fake_herdr.db)
+    result = query_sparks(fake_herdr)
+    assert_rejected(result, "snapshot counts do not match inventory")
+    assert database_dump(fake_herdr.db) == mismatched
+    fake_herdr.assert_calls(())
+
+
+def test_herdr_query_does_not_change_bytes_mtime_or_sidecars(saved_snapshot):
+    fake, before = saved_snapshot
+    sidecars = sorted(p.name for p in fake.db.parent.iterdir())
+    mtime = fake.db.stat().st_mtime_ns
+    result = query_sparks(fake, "panes")
+    assert result.returncode == 0, result.stderr
+    assert fake.db.read_bytes() == before[0]
+    assert fake.db.stat().st_mtime_ns == mtime
+    assert sorted(p.name for p in fake.db.parent.iterdir()) == sidecars
+    fake.assert_calls(())
+
+
+@pytest.mark.parametrize("choice", ["argument", "environment", "xdg", "empty-xdg", "default-missing"])
+def test_herdr_query_path_precedence_does_not_create_a_default(fake_herdr, choice):
+    fake = fake_herdr
+    fake.seed()
+    fake.clear_calls()
+    if choice == "argument":
+        explicit = fake.directory / "explicit.sqlite"
+        explicit.write_bytes(fake.db.read_bytes())
+        result = query_sparks(fake, "--db", str(explicit), "agents")
+        assert result.returncode == 0, result.stderr
+        assert f"db={explicit}" in result.stdout
+    elif choice == "environment":
+        result = query_sparks(fake, "summary")
+        assert result.returncode == 0, result.stderr
+        assert f"db={fake.db}" in result.stdout
+    else:
+        fake.monkeypatch.delenv("SPARKS_HERDR_DB")
+        if choice == "xdg":
+            expected = fake.xdg / "sparks" / "herdr-state.sqlite"
+        else:
+            if choice == "empty-xdg":
+                fake.monkeypatch.setenv("XDG_DATA_HOME", "")
+            else:
+                fake.monkeypatch.delenv("XDG_DATA_HOME")
+            expected = fake.home / ".local" / "share" / "sparks" / "herdr-state.sqlite"
+        result = query_sparks(fake)
+        assert_rejected(result, "no snapshot")
+        assert str(expected) in result.stderr
+        assert not expected.parent.exists()
+    fake.assert_calls(())
+
+
+def test_herdr_query_relative_path_spelling_is_not_resolved(fake_herdr):
+    shown = "./relative.sqlite"
+    assert fake_herdr.run("--db", shown).returncode == 0
+    fake_herdr.clear_calls()
+    result = sparks("herdr", "query", "--db", shown, "agents", cwd=fake_herdr.directory)
+    assert result.returncode == 0, result.stderr
+    assert f"db={shown}" in result.stdout
+    assert str((fake_herdr.directory / "relative.sqlite").resolve()) not in result.stdout
+    fake_herdr.assert_calls(())
+
+
+def test_herdr_query_help_is_noninteractive(fake_herdr):
+    result = sparks("herdr", "query", "--help", cwd=fake_herdr.directory)
+    assert result.returncode == 0, result.stderr
+    text = " ".join(result.stdout.split())
+    assert "Does not call herdr" in result.stdout
+    assert "does not write" in text
+    assert "tab-separated" in text
+    assert "--raw" in result.stdout
+    assert "summary" in result.stdout
+    fake_herdr.assert_calls(())
+    assert not fake_herdr.db.exists()
+
+
+def test_herdr_query_help_mentions_command_on_herdr_help(tmp_path):
+    result = sparks("herdr", "--help", cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "query" in result.stdout
+    assert "snapshot" in result.stdout
+
+
+@pytest.mark.parametrize("status", [None, "", "DONE", "done ", "null"])
+def test_herdr_query_summary_only_excludes_exact_done(fake_herdr, status):
+    rows = herdr_rows()
+    rows["agents"][0]["agent_status"] = status
+    fake_herdr.respond(rows)
+    assert fake_herdr.run().returncode == 0
+    fake_herdr.clear_calls()
+    result = query_sparks(fake_herdr, "--workspace", "w3")
+    assert result.returncode == 0, result.stderr
+    assert "state-review" in result.stdout
+    assert "completed-task" not in result.stdout
+    fake_herdr.assert_calls(())
+
+
+def test_herdr_query_counts_do_not_merge_distinct_statuses(fake_herdr):
+    rows = herdr_rows()
+    statuses = [None, "null", "", "empty", "idle", " idle ", "future status", "future\tstatus"]
+    template = rows["agents"][0]
+    rows["agents"] = [
+        {**template, "name": f"agent-{i}", "pane_id": f"pane-{i}", "agent_status": status}
+        for i, status in enumerate(statuses)
+    ]
+    fake_herdr.respond(rows)
+    assert fake_herdr.run().returncode == 0
+    fake_herdr.clear_calls()
+    result = query_sparks(fake_herdr)
+    assert result.returncode == 0, result.stderr
+    counts = result.stdout.splitlines()[1]
+    for field in ('null=1', '"null"=1', '""=1', 'empty=1', 'idle=1', '" idle "=1',
+                  '"future status"=1', '"future\\tstatus"=1'):
+        assert field in counts
+    fake_herdr.assert_calls(())
+
+
+@pytest.mark.parametrize("view", ["summary", "agents", "workspaces", "tabs", "panes"])
+def test_herdr_query_readonly_uri_never_creates_wal_sidecars(saved_snapshot, monkeypatch, view):
+    fake, before = saved_snapshot
+    # The fixture's diagnostic mode=ro reader can itself leave empty sidecars.
+    # Remove those fixture artifacts so creation by the query cannot go unnoticed.
+    wal = Path(str(fake.db) + "-wal")
+    shm = Path(str(fake.db) + "-shm")
+    assert not wal.exists() or wal.stat().st_size == 0
+    wal.unlink(missing_ok=True)
+    shm.unlink(missing_ok=True)
+    # Catch transient sidecar creation, even if SQLite removes it on close.
+    original_connect = cli.sqlite3.connect
+    def connect(database, **kwargs):
+        assert kwargs["uri"] is True
+        assert database.endswith("?mode=ro&immutable=1")
+        db = original_connect(database, **kwargs)
+        assert not Path(str(fake.db) + "-wal").exists()
+        assert not Path(str(fake.db) + "-shm").exists()
+        return db
+    monkeypatch.setattr(cli.sqlite3, "connect", connect)
+    assert cli.main(["herdr", "query", view]) == 0
+    assert not wal.exists() and not shm.exists()
+    assert fake.db.read_bytes() == before[0]
+    fake.assert_calls(())
+
+
+@pytest.mark.parametrize("suffix", ["-wal", "-journal"])
+def test_herdr_query_refuses_pending_journals_without_changes(saved_snapshot, suffix):
+    fake, _ = saved_snapshot
+    # A live connection keeps a real committed WAL, rather than just a dummy file.
+    with contextlib.closing(sqlite3.connect(fake.db)) as writer:
+        if suffix == "-wal":
+            writer.execute("UPDATE agents SET agent_status='blocked' WHERE name='state-review'")
+            writer.commit()
+        else:
+            assert writer.execute("PRAGMA journal_mode=DELETE").fetchone()[0] == "delete"
+            writer.execute("UPDATE agents SET agent_status='blocked' WHERE name='state-review'")
+        files = list(fake.directory.glob("state.sqlite*"))
+        assert Path(str(fake.db) + suffix) in files
+        before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in files}
+        result = query_sparks(fake)
+        assert_rejected(result, "pending journal data")
+        assert list(fake.directory.glob("state.sqlite*")) == files
+        assert {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in files} == before
+    fake.assert_calls(())
+
+
+def test_herdr_query_detects_concurrent_database_change(saved_snapshot, monkeypatch, capsys):
+    fake, _ = saved_snapshot
+    body = cli._query_body
+    def changed(*args, **kwargs):
+        result = body(*args, **kwargs)
+        os.utime(fake.db, ns=(fake.db.stat().st_atime_ns, fake.db.stat().st_mtime_ns + 1_000_000))
+        return result
+    monkeypatch.setattr(cli, "_query_body", changed)
+    assert cli.main(["herdr", "query"]) == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err.count("\n") == 1
+    assert "snapshot changed while reading" in output.err
+    fake.assert_calls(())
+
+
+@pytest.mark.parametrize("kind", ["corrupt", "directory", "dangling", "empty"])
+def test_herdr_query_read_failures_are_one_line_and_create_nothing(fake_herdr, kind):
+    fake = fake_herdr
+    if kind == "directory":
+        fake.db.mkdir()
+    elif kind == "dangling":
+        fake.db.symlink_to(fake.directory / "absent.sqlite")
+    else:
+        fake.db.write_bytes(b"not a database" if kind == "corrupt" else b"")
+    files = sorted(p.name for p in fake.directory.iterdir())
+    result = query_sparks(fake)
+    assert_rejected(result, "sparks:")
+    assert sorted(p.name for p in fake.directory.iterdir()) == files
+    fake.assert_calls(())
+
+
+@pytest.mark.parametrize("view", ["agents", "summary", "panes"])
+def test_herdr_query_all_filters_combine_exactly(saved_snapshot, view):
+    fake, _ = saved_snapshot
+    args = (view, "--status", "working", "--workspace", "w3", "--tab", "w3:tX", "--name")
+    result = query_sparks(fake, *args, "state-review")
+    assert result.returncode == 0, result.stderr
+    assert "state-review" in result.stdout
+    assert "completed-task" not in result.stdout
+    for name in ("state", "STATE-REVIEW", "state-review' OR 1=1 --"):
+        empty = query_sparks(fake, *args, name)
+        assert empty.returncode == 0, empty.stderr
+        assert "state-review" not in empty.stdout
+        assert "completed-task" not in empty.stdout
+    fake.assert_calls(())
+
+
+@pytest.mark.parametrize("choice", ["xdg", "home", "empty-xdg"])
+def test_herdr_query_reads_default_path(fake_herdr, choice):
+    fake = fake_herdr
+    fake.monkeypatch.delenv("SPARKS_HERDR_DB")
+    if choice == "xdg":
+        expected = fake.xdg / "sparks" / "herdr-state.sqlite"
+    else:
+        if choice == "empty-xdg":
+            fake.monkeypatch.setenv("XDG_DATA_HOME", "")
+        else:
+            fake.monkeypatch.delenv("XDG_DATA_HOME")
+        expected = fake.home / ".local" / "share" / "sparks" / "herdr-state.sqlite"
+    assert fake.run().returncode == 0
+    fake.clear_calls()
+    result = query_sparks(fake)
+    assert result.returncode == 0, result.stderr
+    assert f"db={expected}" in result.stdout
+    fake.assert_calls(())
+
+
+@pytest.mark.parametrize("name", ["query?mode=rw#%23.sqlite", "alias.sqlite"])
+def test_herdr_query_uri_escaping_and_symlinks(saved_snapshot, name):
+    fake, _ = saved_snapshot
+    alias = fake.directory / name
+    alias.symlink_to(fake.db)
+    result = query_sparks(fake, "--db", str(alias), "agents")
+    assert result.returncode == 0, result.stderr
+    assert "state-review" in result.stdout
+    # Journal checks must follow the same resolved target as SQLite.
+    with contextlib.closing(sqlite3.connect(fake.db)) as writer:
+        writer.execute("UPDATE agents SET agent_status='blocked'")
+        writer.commit()
+        result = query_sparks(fake, "--db", str(alias))
+        assert_rejected(result, "pending journal data")
+    fake.assert_calls(())
+
 
 # format and ids
 

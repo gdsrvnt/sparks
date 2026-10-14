@@ -26,6 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- `bin/sparks herdr query` reads the shared herdr snapshot and prints a short tab-separated table (`summary`, `workspaces`, `tabs`, `panes`, or `agents`). It does not call herdr, does not write the database, and does not print stored fetch JSON unless `--raw` is set. A pending WAL or rollback journal is a read failure, not a stale read.
 - Root `sparks.json` gains a type `k` spark whose answer is `docs/house/pi`, alongside its existing spark. The root file stays tracked; other `sparks.json` files stay ignored.
 - `bin/sparks herdr snapshot [--db <path>]` calls `herdr workspace list`, `herdr tab list`, `herdr pane list`, and `herdr agent list` non-interactively and upserts a shared local SQLite database of workspaces, tabs, panes, agents, and agent statuses, and records the snapshot time. The path is `--db`, else `SPARKS_HERDR_DB`, else `$XDG_DATA_HOME/sparks/herdr-state.sqlite` or `~/.local/share/sparks/herdr-state.sqlite`. It exits nonzero with one message if herdr is missing or not running, and it never runs bare `herdr`.
 - `skills/herdr-operations/`: agents refresh that database before and after herdr changes, and again around a herdr heartbeat.
