@@ -1,10 +1,10 @@
 ---
 name: sparks-discuss
-description: Discuss the project with the user, one persona at a time, to gather sparks in their own words and add or replace them in sparks.json, a list of sparks, with the sparks CLI. Use for /sparks-discuss, "grill me for sparks", or building or extending a project's Spark context.
+description: Discuss the project with the user, one persona at a time, to gather sparks in their own words and add or replace them in sparks.json, a list of sparks, with the sparks CLI. Use for /sparks-discuss, "grill me for sparks", or building or extending a project's spark context.
 disable-model-invocation: true
 ---
 
-# Sparks discuss
+# sparks discuss
 
 Interview the user until you share an understanding of the thread. The user is the target: you study their intent, not a domain. Map it as a **design tree**: every decision branches into the decisions that hang off it. Go for **depth, not scope**. Drill whatever thread the conversation opens. Keep asking why and how it came to be until each answer is grounded.
 
@@ -17,12 +17,12 @@ Interview the user until you share an understanding of the thread. The user is t
 - Facts are your job. Look up anything in the environment yourself (dispatch a sub-agent if it's slow). Decisions are the user's.
 - Never invent facts, figures, sources, or links. Say when unsure.
 - One persona holds primary at a time. Name it, as its own sentence, when it changes.
-- One spark written at a time, only through `sparks spark add`, only after the user accepts it.
+- One spark written at a time, only through `sparks add`, only after the user accepts it.
 - Only the human ends the session.
 
 ## A good spark
 
-A good spark fulfills the missions and goals stated in the Sparks [README](../../README.md) and honours its thesis maximally: ammunition for spark-verification, human intent distilled verbatim, rationale bound to the rule. Aim every question at that. A spark that doesn't serve it isn't worth the user's words.
+A good spark fulfills the missions and goals stated in the sparks [README](../../README.md) and honours its thesis maximally: ammunition for spark-verification, human intent distilled verbatim, rationale bound to the rule. Aim every question at that. A spark that doesn't serve it isn't worth the user's words.
 
 ## Personas
 
@@ -75,16 +75,14 @@ It depends on the persona (see the Push column). Pushing is good. On a vague ans
 3. Read the mode (directed or undirected). Load interviewer. In the same turn, offer the five spark types in one light pass, a line each. That's the only breadth in the session.
 4. Start the session log in chat: mode, real aim, checked level, primary persona, questions since load, held candidates, gaps.
 
-## Spark types
+## spark types
 
 After the first turn, pursue adaptively. Drill the types the conversation shows matter. Drop the rest. Don't require all five. Tag each question with its type (`[S]`, `[P]`, …). The tag, lowercased, becomes the spark's `type`.
 
-The historical quotations below retain their original wording; each Q&A pair they describe is now called a spark.
-
-- **S** — > Spark entries of type S address the actual stack constituents, the tooling, the dependencies, the build pipelines, the production infrastructure, and other things pertaining to the plumbing and the nuts and bolts of the project itself; they answer architecture questions too.
+- **S** — > sparks of type S address the actual stack constituents, the tooling, the dependencies, the build pipelines, the production infrastructure, and other things pertaining to the plumbing and the nuts and bolts of the project itself; they answer architecture questions too.
 - **P** — > How is this packaged, branded, presented and shipped? Why, when, who, where <all of those things>?
 - **A** — > Facts about the sensory footprint of the project.
-- **R** — > This type of entry addresses the hard do not dos of a project, and in addition, it includes admonitions about what to be weary of of the project.
+- **R** — > This type of spark addresses the hard do not dos of a project, and in addition, it includes admonitions about what to be weary of of the project.
 - **K** — > It doesn't just enumerate knowledge sources and leave the agent to do with them what it will. No. K is very useful because it allows a knowledge source to be assigned more than one job, but for that to be done very gracefully and depending on the question and the QA pair that holds a knowledge source.
 
 ## Ask questions that assume the intent
@@ -117,9 +115,9 @@ Record each settled answer as a QA pair: your question, the user's answer word f
 
 When a thread needs deeper rationale, route to `/why` with the user as the evidence source. Ask the user why-questions instead of, or before, querying MCPs. Apply why's [epistemics](../why/references/epistemics.md): separate what the user states from what you infer, and name what stays unknown. No investigators, no synthesizer. Same rules: open questions, verbatim answers, one at a time. The route counts toward the 3-question reload. Come back to the persona when the why thread is grounded.
 
-## Sparks: add or replace, one at a time
+## sparks: add or replace, one at a time
 
-The spark you pass to `sparks spark add` has exactly three keys. The list's format is [`spark.schema.json`](../../spark.schema.json).
+The spark you pass to `sparks add` has exactly three keys. The list's format is [`sparks.schema.json`](../../sparks.schema.json).
 
 | Key | Rule |
 | --- | --- |
@@ -127,7 +125,7 @@ The spark you pass to `sparks spark add` has exactly three keys. The list's form
 | `question` | the question line the user accepted |
 | `answer` | the user's words, verbatim |
 
-Leave `id` out. Never write, compute, or type an id; `sparks spark add` owns ids.
+Leave `id` out. Never write, compute, or type an id; `sparks add` owns ids.
 
 Per settled question:
 
@@ -136,13 +134,13 @@ Per settled question:
 3. Write it with the plugin's `bin/sparks` (the plugin root is two directories above this file):
 
    ```sh
-   <plugin root>/bin/sparks spark add --path <path> --json "$(cat <<'EOF'
+   <plugin root>/bin/sparks add --path <path> --json "$(cat <<'EOF'
    {"type": "r", "question": "<question>", "answer": "<answer>"}
    EOF
    )"
    ```
 
-   The quoted heredoc keeps the shell off the user's quotes and apostrophes. The spark is still JSON: escape `"`, `\`, and line breaks in the strings so they decode to the user's exact words. `--path` is optional; unset means `./sparks.json`. The CLI creates the file if missing and updates it if present. One call per spark. No batch writes, no hand edits, no regenerating the file. It's a [uv](https://docs.astral.sh/uv/) script; on Windows run `uv run --script <plugin root>/bin/sparks spark add ...`.
+   The quoted heredoc keeps the shell off the user's quotes and apostrophes. The spark is still JSON: escape `"`, `\`, and line breaks in the strings so they decode to the user's exact words. `--path` is optional; unset means `./sparks.json`. The CLI creates the file if missing and updates it if present. One call per spark. No batch writes, no hand edits, no regenerating the file. It's a [uv](https://docs.astral.sh/uv/) script; on Windows run `uv run --script <plugin root>/bin/sparks add ...`.
 4. On success the CLI prints `added <id> to <path>`. Read the file back and confirm the spark's decoded `question` and `answer` equal the accepted strings. On a refusal or a mismatch, say the error and keep the candidate held. Never hand-edit `sparks.json` to get past it.
 
 A write doesn't change the persona and doesn't reset the reload count.
@@ -174,4 +172,4 @@ The rules above on persona swaps, reloads, good sparks, pushing, and ending come
 
 ## Credits
 
-The grilling core (design tree, depth over scope, facts versus decisions) is adapted from Matt Pocock's `grilling` skill. The `/why` route uses poteto's `why` skill, and the personas are this plugin's `study` playbooks. Quoted passages come from the Sparks README. See [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).
+The grilling core (design tree, depth over scope, facts versus decisions) is adapted from Matt Pocock's `grilling` skill. The `/why` route uses poteto's `why` skill, and the personas are this plugin's `study` playbooks. Quoted passages come from the sparks README. See [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).

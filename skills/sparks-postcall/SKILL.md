@@ -4,7 +4,7 @@ description: After a voice or phone call ends, extract a spec from the call tran
 disable-model-invocation: true
 ---
 
-# Sparks postcall
+# sparks postcall
 
 This skill turns a finished call into a spec, then audits and completes the work done during the call. It is adapted from Matt Pocock's `to-spec` skill. The spec template and the "synthesize, don't interview" stance come from his skill. The source changes from the live conversation to the transcript, and the skill then verifies the call's work, fills the gaps, and merges.
 

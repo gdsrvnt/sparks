@@ -1,5 +1,3 @@
-> Editorial note: This historical transcript is preserved verbatim below. In current terminology, each typed Q&A pair is a **spark**, and a `sparks.json` file is a **list of sparks**. See [the format documentation](format.md).
-
 The idea of Spark is that it's a way of engineering the context of a project or a repository in such a fashion that makes the information have three things that current approaches to context management don't have. The point of Spark is to improve context engineering in three ways that no existing paradigm actually achieve.
 
 Number one is user and human prose. I believe that there's a lot of reasoning and, in fact, a lot of art and a lot of craft encoded in the prose of highly technical or highly skilled humans, and the more of this prose exists in the context window of an agent working on any task, the better the agent adheres to desired behaviors in the life of the project.

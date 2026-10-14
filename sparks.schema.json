@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/gdsrvnt/sparks/main/spark.schema.json",
+  "$id": "https://raw.githubusercontent.com/gdsrvnt/sparks/main/sparks.schema.json",
   "title": "List of sparks",
-  "description": "A list of sparks, represented as a JSON array in sparks.json (or the spark.json example). Each spark is a typed question-and-answer pair. type is one of s, p, a, r, or k (lowercase). id is optional: 16 lowercase hex characters, the XXH64 of the spark that sparks spark add writes on insertion. Files without ids are valid. This schema does not describe the agent skill in SKILL.md.",
+  "description": "A list of sparks, represented as a JSON array in sparks.json. Each spark is a typed question-and-answer pair. type is one of s, p, a, r, or k (lowercase). id is optional: 16 lowercase hex characters, the XXH64 of the spark that sparks add writes on insertion. Files without ids are valid. This schema does not describe the agent skill in SKILL.md.",
   "type": "array",
   "items": { "$ref": "#/$defs/spark" },
   "$defs": {

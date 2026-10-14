@@ -1,10 +1,10 @@
 ---
 name: sparks-domain
-description: Run the Sparks interview with domain modeling built in. Challenge the project's terms, sharpen fuzzy language, stress-test concepts with scenarios, and check them against the code, then add or replace a spark for each settled term and decision in sparks.json, a list of sparks, with the sparks CLI. Use for /sparks-domain, or to build a project's domain language as sparks.
+description: Run the sparks interview with domain modeling built in. Challenge the project's terms, sharpen fuzzy language, stress-test concepts with scenarios, and check them against the code, then add or replace a spark for each settled term and decision in sparks.json, a list of sparks, with the sparks CLI. Use for /sparks-domain, or to build a project's domain language as sparks.
 disable-model-invocation: true
 ---
 
-# Sparks domain
+# sparks domain
 
 This is the [`sparks-discuss`](../sparks-discuss/SKILL.md) interview with Matt Pocock's domain modeling built in. Use domain modeling to decide what to ask. Use sparks-discuss for how to ask it and where the answer goes.
 
@@ -12,9 +12,9 @@ Open [`../sparks-discuss/SKILL.md`](../sparks-discuss/SKILL.md) now and follow i
 
 Domain modeling is the *active* discipline. You challenge terms, invent edge-case scenarios, and capture the language the moment it settles. Reading the project's vocabulary is not this skill. This skill is for when the model is changing.
 
-## Output goes into Sparks only
+## Output goes into sparks only
 
-Every resolved term and every recorded decision becomes a spark, written one at a time through `sparks spark add` under sparks-discuss's add-or-replace protocol. Nothing else is written.
+Every resolved term and every recorded decision becomes a spark, written one at a time through `sparks add` under sparks-discuss's add-or-replace protocol. Nothing else is written.
 
 - Never create or edit `GLOSSARY.md`, `GLOSSARY-MAP.md`, `CONTEXT.md`, `CONTEXT-MAP.md`, or `docs/adr/`. Never print a glossary or an ADR as the session's output.
 - If those files exist, read them. They are sources to challenge against, the same as the code. Where `sparks.json` and one of them disagree, surface it as a question.

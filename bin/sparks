@@ -6,9 +6,9 @@
 
 """Maintain sparks and snapshot the current herdr inventory in SQLite.
 
-``sparks spark add`` adds or replaces one spark by exact question in a list
-of sparks. ``sparks entry add`` remains a backward-compatible alias.
-The spark shape comes from ``spark.schema.json``. ``spark_id.py`` derives
+``sparks add`` adds or replaces one spark by exact question in a list
+of sparks. ``--path`` defaults to ``./sparks.json`` in the working directory.
+The spark shape comes from ``sparks.schema.json``. ``spark_id.py`` derives
 the id (XXH64 via the dependency-free ``spark_hash.py``), and add stores it
 as the spark's optional ``id`` key.
 Both modules are read from the repository root, the parent of ``bin/``.
@@ -46,7 +46,7 @@ from spark_id import Spark, SparkFileError, load  # noqa: E402
 
 DEFAULT_PATH = Path("sparks.json")
 LOCK_NAME = ".sparks.lock"
-SCHEMA = json.loads((ROOT / "spark.schema.json").read_text(encoding="utf-8"))
+SCHEMA = json.loads((ROOT / "sparks.schema.json").read_text(encoding="utf-8"))
 VALIDATOR = validator_for(SCHEMA)(SCHEMA)
 SHOWN_PROBLEMS = 3  # schema problems listed in one message
 PROBLEM_CHARS = 200  # a longer problem is cut in the middle
@@ -55,7 +55,7 @@ UNVERIFIED = 3  # exit status: written, but reading it back did not give what wa
 ADD_DESCRIPTION = """\
 Add or replace one spark in a list of sparks.
 
-The spark must match spark.schema.json: type is s, p, a, r, or k (any case
+The spark must match sparks.schema.json: type is s, p, a, r, or k (any case
 on input; written lowercase), with a
 question and an answer. Do not pass an id: sparks assigns it on insertion,
 as XXH64 (seed 0, 16 lowercase hex) of the compact, key-sorted JSON of answer,
@@ -159,7 +159,7 @@ def _clip(text: str) -> str:
 
 
 def _schema_problems(instance: object, skip: int = 0) -> str:
-    """spark.schema.json problems as ``where: message; ...``, or "" if there are none.
+    """sparks.schema.json problems as ``where: message; ...``, or "" if there are none.
 
     skip drops leading path parts, such as the index of a spark checked alone.
     """
@@ -177,55 +177,55 @@ def _schema_problems(instance: object, skip: int = 0) -> str:
     return "; ".join(shown)
 
 
-def _lower_type(record: object) -> None:
+def _lower_type(spark: object) -> None:
     """Accept a type in any case on input; the canonical, written form is lowercase."""
-    if isinstance(record, dict) and isinstance(record.get("type"), str):
-        record["type"] = record["type"].lower()
+    if isinstance(spark, dict) and isinstance(spark.get("type"), str):
+        spark["type"] = spark["type"].lower()
 
 
-def parse_record(text: str) -> dict[str, str]:
+def parse_spark(text: str) -> dict[str, str]:
     """The --json spark, checked, with keys in the order type, question, answer."""
-    record = _parse(text, "--json")
-    if not isinstance(record, dict):
+    spark = _parse(text, "--json")
+    if not isinstance(spark, dict):
         raise Rejected("--json", "expected one JSON object, a single spark")
-    _lower_type(record)
-    if "id" in record:
+    _lower_type(spark)
+    if "id" in spark:
         raise Rejected("--json", "id is assigned by sparks on add; leave it out")
     # The schema describes a list of sparks, so check the spark as a one-item list.
-    problems = _schema_problems([record], skip=1)
+    problems = _schema_problems([spark], skip=1)
     if problems:
         raise Rejected("--json", problems)
     try:
-        spark = Spark(record["question"], record["answer"], record["type"])
+        built = Spark(spark["question"], spark["answer"], spark["type"])
     except SparkFileError as exc:  # spark_id cannot hash a lone surrogate, or a bad type
         raise Rejected("--json", "question and answer must be valid UTF-8 text") from exc
-    return {"type": spark.type, "question": spark.question, "answer": spark.answer}
+    return {"type": built.type, "question": built.question, "answer": built.answer}
 
 
 def read_file(path: Path, label: str) -> list[dict[str, str]]:
-    """A valid list of sparks: spark.schema.json, then spark_id.load."""
+    """A valid list of sparks: sparks.schema.json, then spark_id.load."""
     try:
         text = path.read_bytes().decode("utf-8")
     except OSError as exc:
         raise Rejected(label, f"cannot read: {_why(exc)}") from exc
     except UnicodeDecodeError as exc:
         raise Rejected(label, "file is not UTF-8") from exc
-    records = _parse(text, label)
-    if isinstance(records, list):
-        for record in records:
-            _lower_type(record)
-    problems = _schema_problems(records)
+    sparks = _parse(text, label)
+    if isinstance(sparks, list):
+        for spark in sparks:
+            _lower_type(spark)
+    problems = _schema_problems(sparks)
     if problems:
         raise Rejected(label, problems)
     try:
         load(path)
     except SparkFileError as exc:
         raise Rejected(label, str(exc)) from exc
-    return records
+    return sparks
 
 
-def render(records: list[dict[str, str]]) -> str:
-    return json.dumps(records, ensure_ascii=False, indent=2) + "\n"
+def render(sparks: list[dict[str, str]]) -> str:
+    return json.dumps(sparks, ensure_ascii=False, indent=2) + "\n"
 
 
 def _default_mode() -> int:
@@ -320,9 +320,9 @@ def _existing(target: Path, label: str) -> tuple[list[dict[str, str]], int]:
     return read_file(target, label), stat.S_IMODE(target.stat().st_mode)
 
 
-def add(path: Path, record_json: str) -> str:
+def add(path: Path, spark_json: str) -> str:
     """Add or replace by exact question in the file at path and return the spark's id."""
-    record = parse_record(record_json)
+    spark = parse_spark(spark_json)
     label = _show(path)
     try:
         # Write through symlinks, so a linked file is updated, not replaced by a copy.
@@ -336,11 +336,11 @@ def add(path: Path, record_json: str) -> str:
     if not target.parent.is_dir():
         raise Rejected(label, f"directory {_show(target.parent)} does not exist")
     with _locked(target.parent, label):
-        records, mode = _existing(target, label)
-        incoming = Spark(record["question"], record["answer"], record["type"])
+        sparks, mode = _existing(target, label)
+        incoming = Spark(spark["question"], spark["answer"], spark["type"])
         matches = [
-            i for i, existing in enumerate(records)
-            if existing["question"] == record["question"]
+            i for i, existing in enumerate(sparks)
+            if existing["question"] == spark["question"]
         ]
         if len(matches) > 1:
             raise Rejected(
@@ -350,24 +350,24 @@ def add(path: Path, record_json: str) -> str:
             )
         if matches:
             index = matches[0]
-            kept_id = records[index].get("id", incoming.id)
-            record = {**record, "id": kept_id}
-            if records[index] == record:
+            kept_id = sparks[index].get("id", incoming.id)
+            spark = {**spark, "id": kept_id}
+            if sparks[index] == spark:
                 return kept_id
-            records[index] = record
+            sparks[index] = spark
         else:
-            record = {**record, "id": incoming.id}
-            records.append(record)
-        _write_atomic(target, render(records), mode, label)
+            spark = {**spark, "id": incoming.id}
+            sparks.append(spark)
+        _write_atomic(target, render(sparks), mode, label)
         try:
             written = read_file(target, label)
         except Rejected as exc:
             problem = f"written, but invalid when read back: {exc.problem}"
             raise Rejected(label, problem, UNVERIFIED) from exc
-        if written != records:
+        if written != sparks:
             problem = "written, but another program changed it before it was read back"
             raise Rejected(label, problem, UNVERIFIED)
-    return record["id"]
+    return spark["id"]
 
 
 SNAPSHOT_DESCRIPTION = """\
@@ -781,12 +781,7 @@ def _parser() -> argparse.ArgumentParser:
         prog="sparks", description="Keep sparks and snapshot current herdr state."
     )
     commands = parser.add_subparsers(dest="command", required=True, metavar="<command>")
-    spark = commands.add_parser(
-        "spark", aliases=["entry"], help="sparks in a list of sparks",
-        description="Manage a list of sparks. 'entry' is a backward-compatible alias for 'spark'.",
-    )
-    actions = spark.add_subparsers(dest="action", required=True, metavar="<action>")
-    add_parser = actions.add_parser(
+    add_parser = commands.add_parser(
         "add",
         help="add or replace one spark by exact question",
         description=ADD_DESCRIPTION,
@@ -803,7 +798,7 @@ def _parser() -> argparse.ArgumentParser:
     add_parser.add_argument(
         "--json",
         required=True,
-        dest="record",
+        dest="spark_json",
         metavar="<json>",
         help='one spark: {"type": "s"|"p"|"a"|"r"|"k", "question": ..., "answer": ...}',
     )
@@ -835,14 +830,14 @@ def main(argv: list[str] | None = None) -> int:
             _say(sys.stdout, f"{output}\n")
         return 0
     try:
-        record_id = add(args.path, args.record)
+        spark_id = add(args.path, args.spark_json)
     except Rejected as exc:
         _say(sys.stderr, f"sparks: {exc}\n")
         return exc.code
     except OSError as exc:  # not mapped above, e.g. no access while resolving the path
         _say(sys.stderr, f"sparks: {_show(args.path)}: {_why(exc)}\n")
         return 1
-    _say(sys.stdout, f"added {record_id} to {_show(args.path)}\n")
+    _say(sys.stdout, f"added {spark_id} to {_show(args.path)}\n")
     return 0
 
 
