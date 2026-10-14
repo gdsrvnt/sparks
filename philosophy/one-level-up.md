@@ -2,6 +2,8 @@
 
 *Dictated intent, lightly edited. Filler and restarts are removed; the words are the speaker's own.*
 
+> **How sparks get written.** Quote the user like a journalist would: ellipses skip fluff, [sic] keeps a mistake, [brackets] fix a typo only when sure, and very ambiguous things go back to the user. This rule may well be the crux to unlocking everything this paradigm promises. See [`rules/journalist-quoting.mdc`](../rules/journalist-quoting.mdc).
+
 This project is my own, so I'm going to be debugging it all today, and that's going to be the impetus for a lot of the questions I've asked and the discussion we've had. We'll keep learning about everything we've been discussing so far, because we're just scratching the surface.
 
 What we're building towards is a more focused version of Sparks that wastes less time explaining its logic and skills, and puts more craft into expressing it in code: well-designed bash scripts that launch particular types of agents to do particular types of things, and even ensure at the harness level that coding agents are, for lack of a better term, type safe.

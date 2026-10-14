@@ -4,6 +4,8 @@
 
 sparks stores what a project needs to know as question-and-answer pairs, written in the verbatim prose of the people who own it. Agents read them before they work and verify against them before they ship.
 
+**Core principle:** sparks quote you like a journalist would: ellipses skip the fluff, [brackets] fix only what's certain, and anything ambiguous comes back to you. See [`rules/journalist-quoting.mdc`](rules/journalist-quoting.mdc).
+
 ## Why sparks
 
 - **Your voice, not a summary.** Context stays in human prose. Nothing is paraphrased away.
