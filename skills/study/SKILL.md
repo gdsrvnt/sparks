@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Study mode
 
+**Headline rule:** every spark you write quotes the user journalist-style, per [`rules/journalist-quoting.mdc`](../../rules/journalist-quoting.mdc).
+
 The playbooks call the user the learner.
 
 ## Non-negotiables

@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # sparks domain
 
+**Headline rule:** every spark you write quotes the user journalist-style, per [`rules/journalist-quoting.mdc`](../../rules/journalist-quoting.mdc).
+
 This is the [`sparks-discuss`](../sparks-discuss/SKILL.md) interview with Matt Pocock's domain modeling built in. Use domain modeling to decide what to ask. Use sparks-discuss for how to ask it and where the answer goes.
 
 Open [`../sparks-discuss/SKILL.md`](../sparks-discuss/SKILL.md) now and follow it in full: non-negotiables, personas, the 3-question reload, first turn, spark types, verbatim answers, the `/why` route, the add-or-replace protocol, and done. This file adds the domain-modeling moves on top. Where the two conflict, sparks-discuss wins.

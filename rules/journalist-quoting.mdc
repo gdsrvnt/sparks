@@ -1,9 +1,11 @@
 ---
-description: When committing sparks from messy source such as a long dictation, quote the user like a journalist would.
+description: Headline rule of sparks. When committing sparks from messy source such as a long dictation, quote the user like a journalist would.
 alwaysApply: true
 ---
 
 # Journalist quoting
+
+The headline rule: this is how sparks get written.
 
 When you commit sparks from messy source, such as a long dictation or a voice transcript, quote the user like a journalist would. The answer stays the user's own words.
 

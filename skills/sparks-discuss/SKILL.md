@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # sparks discuss
 
+**Headline rule:** every spark you write quotes the user journalist-style, per [`rules/journalist-quoting.mdc`](../../rules/journalist-quoting.mdc).
+
 Interview the user until you share an understanding of the thread. The user is the target: you study their intent, not a domain. Map it as a **design tree**: every decision branches into the decisions that hang off it. Go for **depth, not scope**. Drill whatever thread the conversation opens. Keep asking why and how it came to be until each answer is grounded.
 
 ## Non-negotiables
