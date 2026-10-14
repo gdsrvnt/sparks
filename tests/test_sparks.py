@@ -28,6 +28,7 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
+INSTALLED_PI_DIR = Path(os.environ.get("PI_CODING_AGENT_DIR", Path.home() / ".pi" / "agent"))
 ROOT = Path(__file__).resolve().parent.parent
 BIN = ROOT / "bin" / "sparks"
 sys.path.insert(0, str(ROOT))
@@ -2616,6 +2617,13 @@ with open(os.environ["SPARKS_TEST_SPAWN_LOG"], encoding="utf-8") as log:
 with open(os.environ["SPARKS_TEST_SPAWN_REPLIES"], encoding="utf-8") as config:
     replies = json.load(config)
 reply = replies.get(key)
+if key == "herdr agent get" and reply == "run-protocol":
+    with open(os.environ["SPARKS_TEST_SPAWN_LOG"], encoding="utf-8") as log:
+        calls = [json.loads(line) for line in log]
+    last_start = max(i for i, c in enumerate(calls) if c[1:3] == ["agent", "start"])
+    prompted = any(c[1:3] == ["agent", "prompt"] for c in calls[last_start:])
+    reply = {"stdout": json.dumps({"result": {"agent": {"agent_status": "idle",
+        "tokens": {"sparks_run": "1:ok" if prompted else "0:ready"}}}})}
 if isinstance(reply, list):  # one reply per call, the last one repeating
     reply = reply[min(seen, len(reply)) - 1]
 if reply is None:
@@ -2702,7 +2710,7 @@ class FakeSpawn:
         replies["herdr pane read"] = {"stdout": "pane says why\n"}
         replies["herdr tab close"] = CLOSED
         replies["herdr agent prompt"] = {"stdout": "{}"}
-        replies["herdr agent get"] = agent_info("idle")
+        replies["herdr agent get"] = "run-protocol"
         replies.update(overrides or {})
         self.replies_path.write_text(json.dumps(replies), encoding="utf-8")
 
@@ -2762,6 +2770,10 @@ def test_spawn_injected_prompt_tells_the_agent_to_read_and_verify_against_sparks
     assert "implementer persona" in prompt
     assert "read the sparks.json in that directory and in each parent directory" in prompt
     assert "load the repository-root sparks.json and the sparks.json of every directory that holds a changed file" in prompt
+    assert "Write a task-scoped verification skill file just in time" in prompt
+    assert ".sparks/verify/<task>.md" in prompt
+    assert "Then run that procedure" in prompt
+    assert "explicit handoff" in prompt
     assert not cli.CONTROL.search(prompt)
 
 
@@ -2969,7 +2981,7 @@ def test_spawn_a_tab_herdr_cannot_close_is_reported_left_open(fake_spawn):
     result = fake_spawn.run("reviewer")
     assert result.returncode == 1
     assert "herdr tab close failed: nope; tab w1:t9 is left open" in result.stderr
-    assert result.stderr.endswith("failed; tabs left open: w1:t9\n")
+    assert result.stderr.endswith("cleanup failed; stopping fallback\n")
     assert json.loads(result.stdout)["left_open"] == ["w1:t9"]
 
 
@@ -3123,6 +3135,8 @@ def test_spawn_golden_example_has_no_personas_and_its_commented_examples_run(fak
 
 # persona fields: tools, MCP, skills, directories
 
+RESOURCE_TOOLS = "list_mcp_resources,list_mcp_resource_templates,read_mcp_resource"
+
 
 def test_spawn_maps_tools_mcp_skills_and_directories_to_pi_flags(fake_spawn):
     fake_spawn.personas(persona(
@@ -3134,7 +3148,7 @@ def test_spawn_maps_tools_mcp_skills_and_directories_to_pi_flags(fake_spawn):
     command = fake_spawn.plan("reviewer")["command"]
     assert command[7:] == [
         "--tools", "read,bash,grep,mcp__radius__*,mcp__dev_docs__*",
-        "--exclude-tools", "write,mcp__radius__delete*",
+        "--exclude-tools", "write,list_mcp_resources,list_mcp_resource_templates,read_mcp_resource,mcp__radius__delete*",
         "--no-skills",
         "--skill", str(ROOT / "skills" / "spark-verification"),
         "--skill", str(ROOT / "skills" / "sparks-postcall"),
@@ -3148,10 +3162,10 @@ def test_spawn_maps_tools_mcp_skills_and_directories_to_pi_flags(fake_spawn):
 @pytest.mark.parametrize(("keys", "flags"), [
     ({}, []),
     ({"allowed_tools": []}, ["--no-tools"]),
-    ({"allowed_tools": [], "allowed_mcp": ["radius"]}, ["--tools", "mcp__radius__*"]),
-    ({"allowed_mcp": []}, ["--no-mcp"]),
-    ({"allowed_tools": ["read", "edit*"], "allowed_mcp": []}, ["--tools", "read,edit*", "--no-mcp"]),
-    ({"forbidden_mcp": ["radius"]}, ["--exclude-tools", "mcp__radius__*"]),
+    ({"allowed_tools": [], "allowed_mcp": ["radius"]}, ["--tools", "mcp__radius__*", "--exclude-tools", RESOURCE_TOOLS]),
+    ({"allowed_mcp": []}, ["--exclude-tools", RESOURCE_TOOLS, "--no-mcp"]),
+    ({"allowed_tools": ["read", "edit"], "allowed_mcp": []}, ["--tools", "read,edit", "--exclude-tools", RESOURCE_TOOLS, "--no-mcp"]),
+    ({"forbidden_mcp": ["radius"]}, ["--exclude-tools", RESOURCE_TOOLS + ",mcp__radius__*"]),
     ({"skills": []}, ["--no-skills"]),
 ])
 def test_spawn_list_fields_map_to_the_documented_pi_flag(fake_spawn, keys, flags):
@@ -3321,7 +3335,10 @@ def test_spawn_api_error_after_the_prompt_closes_the_tab_and_falls_back(fake_spa
     fake_spawn.model_types(TYPES)
     fake_spawn.personas(persona(model_type="sharp"))
     fake_spawn.replies(table=TYPES_TABLE, overrides={"herdr agent get": [
-        agent_info("blocked", {"sparks_api_error": "401 invalid x-api-key"}), agent_info("idle"),
+        agent_info("idle", {"sparks_run": "0:ready"}),
+        agent_info("idle"),  # real herdr may publish idle before sparks metadata
+        agent_info("blocked", {"sparks_run": "1:error", "sparks_api_error": "401 invalid x-api-key"}),
+        agent_info("idle", {"sparks_run": "0:ready"}), agent_info("idle", {"sparks_run": "1:ok"}),
     ]})
     result = fake_spawn.run("reviewer", "--prompt", "/skill:spark-verification PR 91", "--watch", "20")
     assert result.returncode == 0, result.stderr
@@ -3340,15 +3357,18 @@ def test_spawn_api_error_after_the_prompt_closes_the_tab_and_falls_back(fake_spa
 
 
 def test_spawn_blocked_without_the_api_error_token_is_an_approval_wait_not_a_failure(fake_spawn):
-    fake_spawn.replies(overrides={"herdr agent get": agent_info("blocked", {"other": "1"})})
-    result = fake_spawn.run("reviewer", "--prompt", "go")
-    assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)["attempts"][-1]["result"] == "started"
+    fake_spawn.replies(overrides={"herdr agent get": [
+        agent_info("idle", {"sparks_run": "0:ready"}), agent_info("blocked", {"sparks_run": "1:running"}),
+    ]})
+    result = fake_spawn.run("reviewer", "--prompt", "go", "--watch", "3.1")
+    assert result.returncode == 1, result.stderr
+    assert "approval block" in json.loads(result.stdout)["attempts"][-1]["result"]
     assert ["tab", "close"] not in [call[1:3] for call in fake_spawn.herdr_calls()]
 
 
 def test_spawn_api_error_on_every_combo_exits_1_with_every_attempt(fake_spawn):
-    fake_spawn.replies(overrides={"herdr agent get": agent_info("blocked", {"sparks_api_error": "overloaded"})})
+    fake_spawn.replies(overrides={"herdr agent get": [agent_info("idle", {"sparks_run": "0:ready"}),
+        agent_info("blocked", {"sparks_run": "1:error", "sparks_api_error": "overloaded"})]})
     result = fake_spawn.run("reviewer", "--prompt", "go")
     assert result.returncode == 1
     out = json.loads(result.stdout)
@@ -3357,16 +3377,20 @@ def test_spawn_api_error_on_every_combo_exits_1_with_every_attempt(fake_spawn):
     assert result.stderr.endswith("sparks: every combo for model type fast failed\n")
 
 
-def test_spawn_a_prompt_herdr_refuses_counts_as_a_failed_combo(fake_spawn):
+def test_spawn_a_prompt_herdr_refuses_is_not_a_provider_api_error(fake_spawn):
     fake_spawn.model_types(TYPES)
     fake_spawn.personas(persona(model_type="sharp"))
     fake_spawn.replies(table=TYPES_TABLE, overrides={"herdr agent prompt": [
         {"code": 1, "stderr": "agent exited\n"}, {"stdout": "{}"},
     ]})
     result = fake_spawn.run("reviewer", "--prompt", "go")
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 1, result.stderr
     out = json.loads(result.stdout)
-    assert [a["result"] for a in out["attempts"]] == ["prompt failed (agent exited)", "started"]
+    assert result.returncode == 1
+    assert len(out["attempts"]) == 1
+    assert "prompt submission failed" in out["attempts"][0]["result"]
+    assert out["left_open"] == ["w1:t9"]
+    assert ["tab", "close"] not in [c[1:3] for c in fake_spawn.herdr_calls()]
 
 
 def test_spawn_without_a_prompt_never_prompts_or_watches(fake_spawn):
@@ -3439,73 +3463,245 @@ def test_spawn_shipped_model_types_are_value_powerful_and_fast():
 # the api-error pi extension
 
 
+
+
+@pytest.mark.parametrize("policy", [{"allowed_mcp": ["docs"]}, {"forbidden_mcp": ["private"]}, {"allowed_mcp": []}])
+@pytest.mark.parametrize("pattern", ["*", "read*", "?", "m*?"])
+def test_spawn_selective_mcp_refuses_tool_wildcards(fake_spawn, policy, pattern):
+    fake_spawn.personas(persona(allowed_tools=["read", pattern], **policy))
+    assert_rejected(fake_spawn.run("reviewer", "--dry-run"), "patterns containing * or ? bypass selective MCP")
+    assert fake_spawn.herdr_calls() == []
+
+
+def installed_pi_core():
+    # Read-only managed install, never change the user's pi resources.
+    install = INSTALLED_PI_DIR / "install"
+    current = install / "current-version"
+    if not current.is_file():
+        pytest.skip("needs the managed pi install for its real tool-selection oracle")
+    core = install / "releases" / current.read_text().strip() / "node_modules/@earendil-works/pi-coding-agent/dist/core"
+    if not (core / "agent-session.js").is_file() or shutil.which("node") is None:
+        pytest.skip("needs node and installed pi's AgentSession")
+    return core
+
+
+@pytest.mark.parametrize("policy", ["allowed", "forbidden"])
+@pytest.mark.parametrize("opt_in", [False, True])
+def test_spawn_mcp_policy_with_real_pi_selection(fake_spawn, tmp_path, policy, opt_in):
+    core = installed_pi_core()
+    allowed = ["read", "codemode"] + (["read_mcp_resource"] if opt_in else [])
+    fake_spawn.personas(persona(allowed_tools=allowed, **{f"{policy}_mcp": ["docs" if policy == "allowed" else "private"]}))
+    command = fake_spawn.plan("reviewer")["command"]
+    driver = tmp_path / "selection.mjs"
+    driver.write_text(r'''
+const [core, raw] = process.argv.slice(2);
+const {AgentSession} = await import(`${core}/agent-session.js`);
+const {createToolNameMatcher} = await import(`${core}/mcp-servers.js`);
+const args = JSON.parse(raw);
+const names = args[args.indexOf("--tools") + 1].split(",");
+const excluded = args[args.indexOf("--exclude-tools") + 1].split(",");
+const session = Object.create(AgentSession.prototype);
+session._allowedTools = createToolNameMatcher(names);
+session._excludedTools = createToolNameMatcher(excluded);
+session._allowlistFiltersMcp = names.some(n => n.startsWith("mcp__"));
+const tools = ["read", "codemode", "mcp__docs__lookup", "mcp__private__delete",
+  "list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"];
+console.log(JSON.stringify(Object.fromEntries(tools.map(n => [n, session._isAllowedTool(n)]))));
+''')
+    result = subprocess.run([shutil.which("node"), str(driver), core.as_uri(), json.dumps(command)],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    actual = json.loads(result.stdout)
+    assert actual == {"read": True, "codemode": True, "mcp__docs__lookup": True,
+                      "mcp__private__delete": False, "list_mcp_resources": False,
+                      "list_mcp_resource_templates": False, "read_mcp_resource": opt_in}
+
+
+@pytest.mark.parametrize("stream", ["stderr", "stdout"])
+def test_spawn_rejected_approval_prompt_preserves_tab_without_fallback(fake_spawn, stream):
+    fake_spawn.model_types(TYPES)
+    fake_spawn.personas(persona(model_type="sharp"))
+    fake_spawn.replies(table=TYPES_TABLE, overrides={
+        "herdr agent prompt": [{"code": 1, stream: json.dumps({"error": {
+            "code": "agent_blocked", "message": "waiting for approval"}})}, {"stdout": "{}"}],
+        "herdr agent get": [agent_info("idle", {"sparks_run": "0:ready"}), agent_info("blocked")],
+    })
+    result = fake_spawn.run("reviewer", "--prompt", "go")
+    assert result.returncode == 1
+    out = json.loads(result.stdout)
+    assert "approval block (agent_blocked)" in out["attempts"][0]["result"]
+    assert out["left_open"] == ["w1:t9"]
+    assert len(out["attempts"]) == 1
+    calls = [c[1:3] for c in fake_spawn.herdr_calls()]
+    assert calls.count(["agent", "start"]) == 1 and ["tab", "close"] not in calls
+
+
+def test_spawn_failed_close_stops_before_an_available_successful_combo(fake_spawn):
+    fake_spawn.model_types(TYPES)
+    fake_spawn.personas(persona(model_type="sharp"))
+    fake_spawn.replies(table=TYPES_TABLE, overrides={
+        "herdr agent start": [START_FAILED, {"stdout": "{}"}],
+        "herdr tab close": {"code": 1, "stderr": "nope"},
+    })
+    result = fake_spawn.run("reviewer")
+    assert result.returncode == 1
+    out = json.loads(result.stdout)
+    assert out["left_open"] == ["w1:t9"] and len(out["attempts"]) == 1
+    assert out["attempts"][0]["closed"] is False
+    assert sum(c[1:3] == ["agent", "start"] for c in fake_spawn.herdr_calls()) == 1
+
+
+@pytest.mark.parametrize("info", [agent_info("idle"), agent_info("idle", {"sparks_run": "0:ok"}),
+    agent_info("working", {"sparks_run": "1:running"}),
+    agent_info("idle", {"sparks_run": "1:error"}), {"code": 1, "stderr": "metadata unavailable"}])
+def test_spawn_unknown_or_stale_outcome_is_not_silent_success(fake_spawn, info):
+    fake_spawn.replies(overrides={"herdr agent get": [agent_info("idle", {"sparks_run": "0:ready"}), info]})
+    result = fake_spawn.run("reviewer", "--prompt", "go", "--watch", "3.1")
+    assert result.returncode == 1
+    out = json.loads(result.stdout)
+    assert "failure to confirm" in out["attempts"][0]["result"]
+    assert out["left_open"] == ["w1:t9"]
+    assert ["tab", "close"] not in [c[1:3] for c in fake_spawn.herdr_calls()]
+
+
+def test_spawn_delayed_baseline_and_stale_previous_error_are_reconciled(fake_spawn):
+    fake_spawn.replies(overrides={"herdr agent get": [
+        agent_info("idle"),
+        agent_info("idle", {"sparks_run": "7:ok"}),
+        agent_info("blocked", {"sparks_run": "7:error", "sparks_api_error": "stale"}),
+        agent_info("idle", {"sparks_run": "8:ok"}),
+    ]})
+    result = fake_spawn.run("reviewer", "--prompt", "go")
+    assert result.returncode == 0, result.stderr
+    assert len(json.loads(result.stdout)["attempts"]) == 1
+    assert sum(c[1:3] == ["agent", "get"] for c in fake_spawn.herdr_calls()) == 4
+    assert ["tab", "close"] not in [c[1:3] for c in fake_spawn.herdr_calls()]
+
+
+def test_spawn_approval_without_even_a_baseline_preserves_the_tab(fake_spawn):
+    fake_spawn.replies(overrides={"herdr agent get": agent_info("blocked")})
+    result = fake_spawn.run("reviewer", "--prompt", "go")
+    assert result.returncode == 1
+    out = json.loads(result.stdout)
+    assert "approval block" in out["attempts"][0]["result"]
+    assert out["left_open"] == ["w1:t9"]
+    assert ["tab", "close"] not in [c[1:3] for c in fake_spawn.herdr_calls()]
+
+
 EXTENSION_DRIVER = r"""
 import net from "node:net";
-const [extension, socketPath] = process.argv.slice(2);
+import {EventEmitter} from "node:events";
+const [extension, herdr, socketPath, order, fail] = process.argv.slice(2);
+let tokens = {};
+const history = [];
+const emitted = [];
 const received = [];
-const server = net.createServer((socket) => {
-  socket.on("data", (data) => {
-    received.push(JSON.parse(data.toString()));
-    socket.write('{"result":{"type":"ok"}}\n');
+const server = net.createServer(socket => {
+  let buffer = "";
+  socket.on("data", data => {
+    buffer += data.toString();
+    if (!buffer.includes("\n")) return;
+    const request = JSON.parse(buffer.split("\n")[0]);
+    received.push(request);
+    const metadata = request.method === "pane.report_metadata";
+    setTimeout(() => {
+      if (metadata && !fail) Object.assign(tokens, request.params.tokens);
+      history.push([metadata ? "metadata" : request.params.state, {...tokens}]);
+      socket.write(JSON.stringify({id: request.id, ...(metadata && fail ?
+        {error: {message: "synthetic metadata rejection"}} : {result: {type: "ok"}})}) + "\n");
+    }, metadata ? 150 : 0);
   });
 });
-await new Promise((resolve) => server.listen(socketPath, resolve));
+await new Promise(resolve => server.listen(socketPath, resolve));
 process.env.HERDR_ENV = "1";
 process.env.HERDR_SOCKET_PATH = socketPath;
 process.env.HERDR_PANE_ID = "w1:p9";
 const handlers = {};
-const emitted = [];
-const pi = {
-  on: (name, handler) => { (handlers[name] ??= []).push(handler); },
-  events: { emit: (name, data) => emitted.push([name, data]) },
-};
-const fire = async (name, event, ctx) => { for (const h of handlers[name] ?? []) await h(event, ctx); };
+const events = new EventEmitter();
+events.on("herdr:blocked", data => emitted.push([data, {...tokens}]));
+const pi = {on: (name, handler) => (handlers[name] ??= []).push(handler), events};
 const module = await import(extension);
-module.default(pi);
-await fire("session_start", {}, { mode: "tui" });
-await fire("agent_start", {});
-await fire("message_end", { message: { role: "assistant", stopReason: "stop" } });
-await fire("agent_settled", { aborted: false });
-const afterSuccess = emitted.length + received.length;
-await fire("agent_start", {});
-await fire("message_end", { message: { role: "user" } });
-await fire("message_end", { message: { role: "assistant", stopReason: "error", errorMessage: "401\n invalid key" } });
-const redacted = module.apiError({ role: "assistant", stopReason: "error",
-  errorMessage: "OpenAI API error (401): Incorrect API key provided: sk-proj-****abcd. " + "A".repeat(40) });
-await fire("agent_settled", { aborted: false });
-const afterError = [emitted.slice(), received.slice()];
-await fire("agent_start", {});
-await fire("message_end", { message: { role: "assistant", stopReason: "error" } });
-await fire("agent_settled", { aborted: true });
+const managed = await import(herdr);
+for (const init of order === "herdr-first" ? [managed.default, module.default] : [module.default, managed.default]) init(pi);
+const ctx = {mode: "tui", isIdle: () => idle};
+let idle = true;
+const fire = async (name, event = {}) => {for (const h of handlers[name] ?? []) await h(event, ctx);};
+await fire("session_start");
+idle = false;
+await fire("agent_start");
+await fire("message_end", {message: {role: "assistant", stopReason: "error", provider: "custom",
+  errorMessage: "HTTP 401 Incorrect API key provided: demo-secret-1234"}});
+idle = true;
+await fire("agent_settled");
+await new Promise(resolve => setTimeout(resolve, 60));
+const afterError = {tokens: {...tokens}, emitted: emitted.slice(), history: history.slice()};
+idle = false;
+await fire("agent_start");
+await fire("message_end", {message: {role: "assistant", stopReason: "stop"}});
+idle = true;
+await fire("agent_settled");
+await new Promise(resolve => setTimeout(resolve, 60));
+const afterSuccess = {...tokens};
+idle = false;
+await fire("agent_start");
+idle = true;
+await fire("agent_settled", {aborted: true});
+const redacted = [
+  "Incorrect API key provided: demo-secret-1234", "token=x", "Bearer a", "Authorization: Basic xy",
+  'custom provider: key="q"', "x-api-key: z", "token: short value with spaces", "sk-abc", "A".repeat(40),
+  "overloaded " + "!".repeat(600), "token: 401", 'access_token="short-secret"', 'apiKey: v'
+].map(errorMessage => module.apiError({role: "assistant", stopReason: "error", provider: "custom", errorMessage}));
 server.close();
-console.log(JSON.stringify({ afterSuccess, afterError, emitted, received, redacted }));
+console.log(JSON.stringify({afterError, afterSuccess, tokens, emitted, received, redacted}));
 """
 
 
-def test_extension_reports_an_api_error_as_blocked_and_clears_it_on_the_next_run(tmp_path):
+@pytest.mark.parametrize("order", ["herdr-first", "sparks-first"])
+@pytest.mark.parametrize("fail", [False, True])
+def test_extensions_delayed_metadata_both_load_orders_and_delivery_failure(tmp_path, order, fail):
     node = shutil.which("node")
-    if node is None:
-        pytest.skip("needs node to load the pi extension")
+    source = INSTALLED_PI_DIR / "extensions" / "herdr-agent-state.ts"
+    if node is None or not source.is_file():
+        pytest.skip("needs node and the real installed herdr extension (read-only source)")
+    before = source.read_bytes()
+    # Copy the real, unmodified managed extension; never edit the installed file.
+    managed = tmp_path / "herdr-agent-state.ts"
+    managed.write_bytes(before)
+    managed.chmod(0o444)
     driver = tmp_path / "driver.mjs"
     driver.write_text(EXTENSION_DRIVER, encoding="utf-8")
-    socket_path = tmp_path / "herdr.sock"
-    done = subprocess.run([node, str(driver), EXTENSION, str(socket_path)], capture_output=True,
-                          encoding="utf-8", timeout=60)
+    done = subprocess.run([node, str(driver), EXTENSION, str(managed), str(tmp_path / "herdr.sock"),
+                           order, "fail" if fail else ""], capture_output=True, text=True, timeout=60)
+    assert source.read_bytes() == before
     assert done.returncode == 0, done.stderr
     report = json.loads(done.stdout.strip().splitlines()[-1])
-    assert report["afterSuccess"] == 0  # a run that ends normally reports nothing
-    emitted, received = report["afterError"]
-    assert emitted == [["herdr:blocked", {"active": True, "label": "sparks:api-error: 401 invalid key"}]]
-    (request,) = received
-    assert request["method"] == "pane.report_metadata"
-    assert request["params"] == {
-        "pane_id": "w1:p9", "source": "sparks:pi", "agent": "pi", "tokens": {"sparks_api_error": "401 invalid key"},
-    }
-    # The next run clears both; an aborted run (Escape) is not an API error.
-    assert report["emitted"][1:] == [["herdr:blocked", {"active": False}]]
-    assert report["received"][1]["params"]["tokens"] == {"sparks_api_error": None}
-    assert len(report["received"]) == 2
-    assert report["redacted"] == "OpenAI API error (401): Incorrect API key provided: [redacted]. [redacted]"
+    if fail:
+        assert report["emitted"] == []
+        assert report["tokens"] == {}
+        assert "completion metadata delivery failed; outcome unconfirmed" in done.stderr
+    else:
+        after = report["afterError"]
+        assert after["tokens"]["sparks_run"] == "1:error"
+        assert "HTTP 401 api error" in after["tokens"]["sparks_api_error"]
+        assert "demo-secret-1234" not in json.dumps(report)
+        # At blocked emission metadata has already been delivered/acknowledged.
+        [(event, tokens)] = after["emitted"]
+        assert event["active"] is True and tokens["sparks_run"] == "1:error"
+        blocked = next(i for i, row in enumerate(after["history"]) if row[0] == "blocked")
+        terminal = next(i for i, row in enumerate(after["history"]) if row[1].get("sparks_run") == "1:error")
+        assert terminal < blocked
+        if order == "herdr-first":
+            assert any(state == "idle" and tokens.get("sparks_run") == "1:running" for state, tokens in after["history"])
+        assert report["afterSuccess"] == {"sparks_run": "2:ok", "sparks_api_error": None}
+        assert report["tokens"] == {"sparks_run": "3:aborted", "sparks_api_error": None}
+        assert report["emitted"][1][0] == {"active": False}
+    for value, secret in zip(report["redacted"], ["demo-secret-1234", "=x", "Bearer a", "Basic xy", '"q"', ": z", "short value", "sk-abc", "A" * 40]):
+        assert secret not in value
+        assert "[redacted]" in value and value.startswith("custom api error:")
+    assert all(len(value) <= 300 for value in report["redacted"])
+    assert "401" not in report["redacted"][-3]
+    assert "short-secret" not in report["redacted"][-2]
+    assert ": v" not in report["redacted"][-1]
 
 
 # format and ids

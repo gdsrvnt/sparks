@@ -1184,6 +1184,7 @@ GOLDEN_AGENTS = "defaults/agent.toml"
 DEFAULT_AGENTS = ROOT / "defaults" / "agents.toml"
 DEFAULT_MODEL_TYPES = ROOT / "defaults" / "model-types.toml"
 API_ERROR_EXTENSION = ROOT / "pi" / "extensions" / "sparks-api-error-blocked.ts"
+RUN_TOKEN = "sparks_run"
 API_ERROR_TOKEN = "sparks_api_error"  # the herdr pane token the extension sets
 # herdr agent names match [a-z][a-z0-9_-]{0,31}; spawn appends "-" and 4 hex digits.
 PERSONA_NAME = re.compile(r"[a-z][a-z0-9_-]{0,26}")
@@ -1252,7 +1253,14 @@ SPARKS_PROMPT = (
     "At the end of your task, before you report it done, verify your work just in time: list the files "
     "your diff changes (git status and git diff against the base), load the repository-root sparks.json "
     "and the sparks.json of every directory that holds a changed file, and check the work against each "
-    "answer. In your final report, name the sparks.json files you checked and quote each spark your work "
+    "answer. Write a task-scoped verification skill file just in time under a gitignored location "
+    "(for example .sparks/verify/<task>.md): a checklist/procedure scoped to the root and all touched "
+    "subdirectory sparks.json files, including applicable ancestors. Confirm that location is ignored "
+    "(git check-ignore); do not expose or load unrelated skills. Then run that procedure and report its "
+    "path, commands, and results. If your read-only persona or directory restrictions prevent writing "
+    "it, provide the procedure and an explicit handoff to the summoning agent to persist and run it; "
+    "report the artifact as blocked, not created. In your final report, name the sparks.json files you "
+    "checked and quote each spark your work "
     "violates with the file, or say that none does."
 )
 DIRECTORIES_PROMPT = (
@@ -1606,6 +1614,9 @@ def _covers(patterns: list[str], tool: str) -> bool:
 def _persona_args(entry: dict[str, object], name: str, cwd: str, where: str) -> list[str]:
     """The pi arguments every combo shares: tools, MCP, skills, extension, system prompts."""
     args: list[str] = []
+    selective_mcp = "allowed_mcp" in entry or "forbidden_mcp" in entry
+    if selective_mcp and any("*" in tool or "?" in tool for tool in entry.get("allowed_tools", [])):
+        raise SpawnError(f"{where}: allowed_tools patterns containing * or ? bypass selective MCP restrictions")
     allowed = _tool_patterns(entry.get("allowed_tools", []), where, "allowed_tools")
     forbidden = _tool_patterns(entry.get("forbidden_tools", []), where, "forbidden_tools")
     allowed_mcp = [_mcp_pattern(e, where, "allowed_mcp") for e in entry.get("allowed_mcp", [])]
@@ -1622,6 +1633,12 @@ def _persona_args(entry: dict[str, object], name: str, cwd: str, where: str) -> 
     if "allowed_tools" in entry:
         listed = allowed + allowed_mcp
         args += ["--tools", ",".join(listed)] if listed else ["--no-tools"]
+    # These tools span all enabled servers; explicit literal allowed_tools
+    # entries opt in to unfiltered resource access, not server-scoped access.
+    if selective_mcp:
+        forbidden = forbidden + [tool for tool in
+            ("list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource")
+            if tool not in allowed and tool not in forbidden]
     if forbidden or forbidden_mcp:
         args += ["--exclude-tools", ",".join(forbidden + forbidden_mcp)]
     if entry.get("allowed_mcp") == []:
@@ -1824,33 +1841,85 @@ def _start(plan: dict[str, object], step: dict[str, object], agent: str, pane: s
     return f"start failed ({_snapshot_reason(problem)})"
 
 
-def _api_error(plan: dict[str, object], pane: str) -> str | None:
-    """Send the prompt, wait up to watch_ms for idle, blocked, or done, then read the agent.
-    The api-error extension's pane token marks a pi API error; other blocks (approval waits) are not."""
-    prompt = [
-        "herdr", "agent", "prompt", pane, plan["prompt"], "--wait",
-        "--until", "idle", "--until", "blocked", "--until", "done",
-    ]
+def _api_error(plan: dict[str, object], pane: str) -> tuple[str | None, bool]:
+    """Confirm this run's terminal marker within --watch. bool means keep tab,
+    stop fallback: approval, transport failures and unknown outcomes are not API errors."""
+    deadline = time.monotonic() + plan["watch_ms"] / 1000
+    agent, tokens = {}, {}
+
+    def get_agent() -> tuple[dict, dict]:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise SpawnError("watch expired")
+        got = _herdr_result(_run(["herdr", "agent", "get", pane], min(CALL_TIMEOUT, remaining),
+                                 "herdr agent get"), "herdr agent get")
+        agent = got.get("agent") if isinstance(got.get("agent"), dict) else {}
+        tokens = agent.get("tokens") if isinstance(agent.get("tokens"), dict) else {}
+        return agent, tokens
+
+    def marker(tokens: dict):
+        value = tokens.get(RUN_TOKEN)
+        return re.fullmatch(r"(\d+):(ready|running|ok|error|aborted)", value) if isinstance(value, str) else None
+
     try:
-        sent = _run(prompt, plan["watch_ms"] / 1000, "herdr agent prompt")
+        # Baseline before input avoids accepting a stale terminal result. session_start
+        # publishes ready; agent_start increments the sequence even for a successful run.
+        while True:
+            agent, tokens = get_agent()
+            baseline = marker(tokens)
+            if baseline is not None and baseline[2] != "running":
+                break
+            if agent.get("agent_status") == "blocked" and not tokens.get(API_ERROR_TOKEN):
+                return "approval block (run baseline unconfirmed); keeping the agent", True
+            if deadline - time.monotonic() <= 0.1:
+                return "failure to confirm run baseline; keeping the agent", True
+            time.sleep(0.1)
+        expected = int(baseline[1]) + 1
+        prompt = ["herdr", "agent", "prompt", pane, plan["prompt"], "--wait",
+                  "--until", "idle", "--until", "blocked", "--until", "done"]
+        rejected_block = False
+        try:
+            sent = _run(prompt, max(0.001, deadline - time.monotonic()), "herdr agent prompt")
+        except SpawnError as exc:
+            if not str(exc).startswith("herdr agent prompt: timed out"):
+                return "prompt transport failed; keeping the agent", True
+        else:
+            if sent.returncode:
+                for text in (sent.stderr, sent.stdout):
+                    with contextlib.suppress(ValueError, TypeError):
+                        body = json.loads(text)
+                        error = body.get("error", {}) if isinstance(body, dict) else {}
+                        rejected_block = isinstance(error, dict) and error.get("code") == "agent_blocked"
+                        if rejected_block:
+                            break
+                if not rejected_block:
+                    return "prompt submission failed; keeping the agent (not a confirmed API error)", True
+        while True:
+            agent, tokens = get_agent()
+            current = marker(tokens)
+            if rejected_block:
+                # herdr rejected input before sending any. An existing API-error
+                # block can fall back; an approval block must never lose its tab.
+                if tokens.get(API_ERROR_TOKEN):
+                    return f"api error ({_snapshot_reason(tokens[API_ERROR_TOKEN])}, status {agent.get('agent_status')})", False
+                return "approval block (agent_blocked); keeping the agent", True
+            if current and int(current[1]) == expected:
+                if current[2] == "error" and tokens.get(API_ERROR_TOKEN):
+                    return f"api error ({_snapshot_reason(tokens[API_ERROR_TOKEN])}, status {agent.get('agent_status')})", False
+                if current[2] == "ok":
+                    return None, False
+                if current[2] in ("error", "aborted"):
+                    return "failure to confirm successful run; keeping the agent", True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.1:
+                if agent.get("agent_status") == "blocked" and not tokens.get(API_ERROR_TOKEN):
+                    return "approval block; keeping the agent", True
+                return "failure to confirm run outcome within --watch; keeping the agent", True
+            time.sleep(min(0.1, remaining))
     except SpawnError as exc:
-        if not str(exc).startswith("herdr agent prompt: timed out"):
-            return f"prompt failed ({_snapshot_reason(exc)})"
-        # Still working at the end of the window: no API error so far.
-    else:
-        if sent.returncode:
-            reason = sent.stderr.strip() or sent.stdout.strip() or f"exit {sent.returncode}"
-            return f"prompt failed ({_snapshot_reason(reason)})"
-    try:
-        got = _herdr_result(_run(["herdr", "agent", "get", pane], CALL_TIMEOUT, "herdr agent get"), "herdr agent get")
-    except SpawnError as exc:
-        _say(sys.stderr, f"sparks: {exc}; cannot tell whether the request failed, keeping the agent\n")
-        return None
-    agent = got.get("agent") if isinstance(got.get("agent"), dict) else {}
-    tokens = agent.get("tokens") if isinstance(agent.get("tokens"), dict) else {}
-    if API_ERROR_TOKEN in tokens:
-        return f"api error ({_snapshot_reason(tokens[API_ERROR_TOKEN])}, status {agent.get('agent_status')})"
-    return None
+        if agent.get("agent_status") == "blocked" and not tokens.get(API_ERROR_TOKEN):
+            return f"approval block (last observed; outcome unconfirmed: {_snapshot_reason(exc)}); keeping the agent", True
+        return f"failure to confirm run outcome ({_snapshot_reason(exc)}); keeping the agent", True
 
 
 def spawn(plan: dict[str, object]) -> tuple[int, dict[str, object]]:
@@ -1867,8 +1936,14 @@ def spawn(plan: dict[str, object]) -> tuple[int, dict[str, object]]:
         agent = plan["agent"] if index == plan["chosen"] else f"{persona}-{secrets.token_hex(2)}"
         tab, pane = _create_tab(plan["cwd"])
         problem = _start(plan, step, agent, pane)
+        keep = False
         if problem is None and "prompt" in plan:
-            problem = _api_error(plan, pane)
+            problem, keep = _api_error(plan, pane)
+        if keep:
+            attempts.append({**combo, "result": problem, "tab": tab, "closed": False})
+            _say(sys.stderr, f"sparks: {problem}; tab {tab} is left open; stopping fallback\n")
+            return 1, {"agent": agent, "tab": tab, "pane": pane, "model_type": plan["model_type"],
+                       "attempts": attempts, "left_open": [tab]}
         if problem is None:
             attempts.append({**combo, "result": "started"})
             out = {"agent": agent, "tab": tab, "pane": pane, "command": step["command"],
@@ -1878,6 +1953,9 @@ def spawn(plan: dict[str, object]) -> tuple[int, dict[str, object]]:
         if not closed:
             left_open.append(tab)
         attempts.append({**combo, "result": problem, "tab": tab, "closed": closed})
+        if not closed:
+            _say(sys.stderr, "sparks: cleanup failed; stopping fallback\n")
+            return 1, {"agent": None, "model_type": plan["model_type"], "attempts": attempts, "left_open": left_open}
         _say(sys.stderr, f"sparks: {step['type']} {combo['provider']}/{combo['model']} {combo['effort']}: "
                          f"{problem}; tab {tab} {'closed' if closed else 'is left open'}; trying the next combo\n")
     left = f"; tabs left open: {', '.join(left_open)}" if left_open else ""

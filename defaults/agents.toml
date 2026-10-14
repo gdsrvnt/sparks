@@ -8,7 +8,10 @@
 # Every launch also gets the sparks prompt from bin/sparks: read the
 # sparks.json of every directory the agent will read or write, and at the end
 # of its task verify its diff against the repository-root sparks.json and the
-# sparks.json of every directory the diff touches.
+# sparks.json of every directory the diff touches, create a task-scoped
+# verification procedure in a gitignored location, then run it and report.
+# Read-only/restricted personas hand the procedure to the summoner to persist
+# and run, explicitly reporting that artifact creation is blocked.
 #
 # The skills each persona sees are limited with skills (pi --no-skills plus
 # --skill per entry). The sparks skills set disable-model-invocation, so pi
@@ -47,5 +50,6 @@ forbidden_tools = ["edit", "write"]
 system_prompt = """\
 You review. Verify the pull request or branch you are given against the \
 sparks.json files that apply to it, and report each violation with the file \
-and the quoted spark. Do not edit files.\
+and the quoted spark. Do not edit files; hand the task-scoped verification \
+procedure to the summoning agent to persist and run, marking creation blocked.\
 """

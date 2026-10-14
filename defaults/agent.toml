@@ -65,6 +65,8 @@
 #                        (read, bash, edit, write, grep, find, ls, and
 #                        extension tools). [] is --no-tools. No +name/-name
 #                        entries and no mcp__ entries: use allowed_mcp.
+#                        With allowed_mcp or forbidden_mcp set, entries with
+#                        * or ? are refused (they could bypass MCP selection).
 #   forbidden_tools      Tool names or * patterns. Sent as --exclude-tools,
 #                        which pi applies after every other tool option.
 #   allowed_mcp          MCP server names (sent as mcp__<server>__*) or
@@ -75,6 +77,12 @@
 #                        [] is --no-mcp: no MCP server connects.
 #   forbidden_mcp        MCP server names or mcp__ patterns, added to
 #                        --exclude-tools.
+#                        With either MCP key set (even empty), resource tools
+#                        list_mcp_resources, list_mcp_resource_templates, and
+#                        read_mcp_resource are excluded unless each is listed
+#                        literally in allowed_tools. That explicit opt-in
+#                        permits resources on ALL enabled servers: pi cannot
+#                        filter resource arguments by these server policies.
 #   skills               Skill names. Sent as --no-skills, then --skill <dir>
 #                        for each, so the persona sees only these skills.
 #                        [] loads no skill. Each name is looked up, first
@@ -96,7 +104,11 @@
 #   --append-system-prompt with the sparks prompt: read the sparks.json of
 #     every directory it will read or write, and at the end of its task
 #     verify its diff against the repository-root sparks.json and the
-#     sparks.json of every directory the diff touches.
+#     sparks.json of every directory the diff touches, write a task-scoped
+#     verification procedure in a confirmed gitignored location such as
+#     .sparks/verify/<task>.md, then run it and report. Read-only/restricted
+#     personas provide an explicit handoff to the summoner to persist/run it;
+#     they must not claim they created an artifact they could not write.
 # Because spawn always passes --append-system-prompt, pi's APPEND_SYSTEM.md
 # (.pi/APPEND_SYSTEM.md or ~/.pi/agent/APPEND_SYSTEM.md) never applies to a
 # spawned persona: pi reads that file only when no --append-system-prompt is
