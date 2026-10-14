@@ -53,6 +53,16 @@ Initiator picks its role.
 
 `aligned` and `covered` start explicitly `null`. Only the judge writes them.
 
+## Spark Types
+
+From the README, as quoted in sparks-discuss:
+
+- **S** — > sparks of type S address the actual stack constituents, the tooling, the dependencies, the build pipelines, the production infrastructure, and other things pertaining to the plumbing and the nuts and bolts of the project itself; they answer architecture questions too.
+- **P** — > How is this packaged, branded, presented and shipped? Why, when, who, where <all of those things>?
+- **A** — > Facts about the sensory footprint of the project.
+- **R** — > This type of spark addresses the hard do not dos of a project, and in addition, it includes admonitions about what to be weary of of the project.
+- **K** — > It doesn't just enumerate knowledge sources and leave the agent to do with them what it will. No. K is very useful because it allows a knowledge source to be assigned more than one job, but for that to be done very gracefully and depending on the question and the QA pair that holds a knowledge source.
+
 ## Protocol
 
 1. Player sends a proposed spark (`status: draft`, `streak` = current value).
