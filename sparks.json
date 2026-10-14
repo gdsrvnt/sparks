@@ -64,5 +64,65 @@
     "question": "What can an agent persona definition in the sparks TOML file specify?",
     "answer": "Furthermore, the, uh, agent persona definitions in our TOML file can specify allowed tools and forbidden tools, and essentially our TOML file should allow, yeah, uh, forbidden tools, allowed tools, forbidden MCP, allowed MCP, and, uh, skills, and, uh, allowed directories, and, uh, that is probably all for now. Uh, in addition, let's go ahead and, um, yeah, actually, that's good. Send that off to Salim as well.",
     "id": "e921473cb669ccc7"
+  },
+  {
+    "type": "s",
+    "question": "Should an explicit model on a persona turn off the model-type chain, or be removed?",
+    "answer": "overrides type. runs with declared model still fallback to types if failed",
+    "id": "c499c59350c1a863"
+  },
+  {
+    "type": "s",
+    "question": "The default types per persona (reviewer and spec-writer powerful, implementer value) and the fast combos are my picks.",
+    "answer": "explore use fast. implementer use fast. review use powerful. spec-writer use powerful. fixer use value.",
+    "id": "9862bc1d54a189f4"
+  },
+  {
+    "type": "p",
+    "question": "No \"spark implementation skill\" exists. Should one be written for the implementer?",
+    "answer": "Goddy will build one out",
+    "id": "cf6887208aab0e19"
+  },
+  {
+    "type": "p",
+    "question": "Should the spec-writer use a dedicated spec skill? sparks-postcall also implements and opens PRs.",
+    "answer": "Yes, TBD",
+    "id": "76e59ad2f09fb6fb"
+  },
+  {
+    "type": "p",
+    "question": "Should the just-in-time verification load create-verification-skill?",
+    "answer": "Absolutely",
+    "id": "c71a84878b861472"
+  },
+  {
+    "type": "s",
+    "question": "The shared prompt is hard-coded in bin/sparks. Should it move to an overridable file?",
+    "answer": "No, instead, personas can define system prompts in the TOML, which override (not append to) the sparks default. but if a persona define system_append then obviously it appends. default system prompt should live right next to the toml for easy config and be referenced by the constructor, which replaces it with a single whitespace if unable to evaluate it from the expected path.",
+    "id": "5d5b1e79602afb52"
+  },
+  {
+    "type": "s",
+    "question": "Managing sessions after launch (list, stop) isn't built.",
+    "answer": "Will do",
+    "id": "6acbd0dfd6f2e3b8"
+  },
+  {
+    "type": "s",
+    "question": "herdr-operations still sends Anthropic models to Claude Code, while personas route everything through pi.",
+    "answer": "fix herdr-ops. mention the system prompt workaround.",
+    "id": "057ea0f340fb4b23"
+  },
+  {
+    "type": "s",
+    "question": "Which persona settings can pi not enforce?",
+    "answer": "pi can't enforce allowed_directories or service_tier.",
+    "id": "d709adb86ca61fa1"
+  },
+  {
+    "type": "s",
+    "question": "What limits does herdr put on the system prompts and extra flags that sparks agent spawn passes to pi?",
+    "answer": "herdr can't pass multi-line system prompts, and the extra flags are split on whitespace.",
+    "id": "0652941e6a5bd3a5"
   }
 ]
