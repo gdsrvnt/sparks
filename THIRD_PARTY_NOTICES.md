@@ -36,6 +36,10 @@ It's licensed under the MIT License, Copyright (c) 2026 HumanLayer. The full lic
 
 All three are licensed under the MIT License, Copyright (c) 2026 Matt Pocock. The full license text is in [`skills/LICENSE-mattpocock`](skills/LICENSE-mattpocock).
 
+## subagent skill by Mario Zechner (@badlogic)
+
+`docs/house/community-skills/subagent/SKILL.md` is copied unchanged from Mario Zechner's [gist](https://gist.github.com/badlogic/d36e325248b68414e1c6528c6ed6b525/3d7d74a92bef0ff41827df1db3a0f49e0f5b1e4b) at revision `3d7d74a92bef0ff41827df1db3a0f49e0f5b1e4b`. It is a community skill in the house library, kept with its source for reference. It is not a plugin skill. The gist states no license, so this copy carries no license grant from this project. [`NOTICE`](docs/house/community-skills/subagent/NOTICE) next to it records the source.
+
 ## XXH64 from xxHash by Yann Collet
 
 `spark_hash.py` is a pure-Python port of the XXH64 algorithm from [xxHash](https://github.com/Cyan4973/xxHash/tree/680bf463fa1ca0461b9a7c2dab7556e1f54cf4cf) (license checked at commit `680bf463fa1ca0461b9a7c2dab7556e1f54cf4cf`). No C code is copied.
