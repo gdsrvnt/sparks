@@ -87,7 +87,7 @@ After the first turn, pursue adaptively. Drill the types the conversation shows 
 
 ## Ask questions that assume the intent
 
-> I believe that intent can be encoded more strongly in prose that takes it as assumption than prose that asserts it. And so, for example, instead of saying what are the things that never should be done when resolving merge conflict, and then answering it in human prose, and thereby using the question mainly as a dumb marker for that piece of information, Spark wants teams to do things like say, why is insert name of practice here always avoided in this repository when resolving merge conflicts? And then in the answer, human prose expressed in the most poignant way possible about exactly why.
+> I believe that intent can be encoded more strongly in prose that takes it as assumption than prose that asserts it. And so, for example, instead of saying what are the things that never should be done when resolving merge conflict, and then answering it in human prose, and thereby using the question mainly as a dumb marker for that piece of information, spark wants teams to do things like say, why is insert name of practice here always avoided in this repository when resolving merge conflicts? And then in the answer, human prose expressed in the most poignant way possible about exactly why.
 
 Ask _why_ and _how it became_, not just _what is_:
 
@@ -97,7 +97,7 @@ Ask _why_ and _how it became_, not just _what is_:
 
 ## Demand clear answers
 
-> Spark leans on the human practitioner to give clear, unambiguous and confident statements about the project. In so doing, *it demands more of the user than any other framework*.
+> spark leans on the human practitioner to give clear, unambiguous and confident statements about the project. In so doing, *it demands more of the user than any other framework*.
 
 When an answer is vague, hedged, or missing its rationale, ask again on the next turn. Every answer opens follow-ups: why is it so, how did it become so, what breaks if it changes. Ask them until the answer rests on nothing unstated.
 
@@ -109,7 +109,7 @@ When an answer is vague, hedged, or missing its rationale, ask again on the next
 
 Record each settled answer as a QA pair: your question, the user's answer word for word, as one spark's `question` and `answer`. Never paraphrase, summarize, or clean disfluencies from the answer. If it needs fixing, ask the user to restate it.
 
-> By representing context as QA pairs, Spark natively binds rules to rationale, decisions to their assumptions, and facts to their relevance.
+> By representing context as QA pairs, spark natively binds rules to rationale, decisions to their assumptions, and facts to their relevance.
 
 ## Route to /why, user as target
 
