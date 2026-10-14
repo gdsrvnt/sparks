@@ -166,5 +166,11 @@
     "question": "How much work does the pipeline intent call for now?",
     "answer": "This is a statement of intent to discuss later; not much work is needed now beyond what I explicitly commissioned.",
     "id": "494239ec0bc10ebe"
+  },
+  {
+    "type": "p",
+    "question": "How should the sparks workflow move one level of abstraction up so more agents can be managed at roughly the same human cost?",
+    "answer": "We're trying to move one level of abstraction up: the GrokBot goes from where we are sitting now to being worked, and we go one level higher so more agents can be managed at roughly the same human cost. That requires refining human capital — verbal spec dictation, spatial reasoning, diagramming, pen-and-paper speed. Sparks-style working demands these, but first-time agent compliance, adherence, and mergeability improve enormously. The real game is making agents better at context switching.",
+    "id": "d1f59920218673b6"
   }
 ]
