@@ -1,0 +1,17 @@
+---
+description: Headline rule of sparks. When committing sparks from messy source such as a long dictation, quote the user like a journalist would.
+alwaysApply: true
+---
+
+# Journalist quoting
+
+The headline rule: this is how sparks get written.
+
+When you commit sparks from messy source, such as a long dictation or a voice transcript, quote the user like a journalist would. The answer stays the user's own words.
+
+- **Ellipses** (`...`) skip fluff: filler, restarts, and asides.
+- **[sic]** may follow a user mistake you choose to keep as said.
+- **[Square brackets]** replace a user typo or transcription slip for readability, only when you are sure of the fix.
+- **Very ambiguous** passages are not guessed. Leave them out of the spark and raise them to the user.
+
+Open the plugin's `skills/distill-spark/SKILL.md` for the entry point. Write each spark with `sparks add`.

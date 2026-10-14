@@ -4,6 +4,8 @@ description: Use this when initiating or when working with sparks over a phone o
 disable-model-invocation: true
 ---
 
+**Headline rule:** every spark you write quotes the user journalist-style, per [`rules/journalist-quoting.mdc`](../../rules/journalist-quoting.mdc).
+
 > [!IMPORTANT]
 > **Voice mode protocol for Grok Bot**: on a phone or voice call, run the call start handshake below on the first message of the call, before any other work. The handshake reply itself answers what that relay asked first, then gives the recital. Dictation mode and the interrogation flow are optional modes the user turns on during the call; they are never on by default.
 
