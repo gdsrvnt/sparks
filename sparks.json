@@ -69,79 +69,79 @@
     "type": "p",
     "question": "What is the next version of Sparks building towards?",
     "answer": "\"...what we're building towards is essentially a more focused version of Sparks that wastes less time explaining its logic and skills, and puts more craft into expressing it in code while essentially... well-designed... bash scripts that launch particular types of agents to do particular types of things...\" (Intent to discuss, not a build.)",
-    "id": "a33d08d4cf3dfec7"
+    "id": "5079c8e80d4664fc"
   },
   {
     "type": "s",
     "question": "How should coding agents be constrained at the harness level?",
     "answer": "\"...even ensure at the harness level that coding agents are essentially, for lack of a better term, type safe.\" (Intent to discuss, not a build.)",
-    "id": "ff1c22d9abc4bdfc"
+    "id": "56e8fc7e33d01eab"
   },
   {
     "type": "s",
     "question": "How should pi be used in the new Sparks?",
     "answer": "\"...we should start thinking about... how to use [pi] in a headless and programmatic way...\" (Intent to discuss, not a build.)",
-    "id": "9c2d56a32c22c858"
+    "id": "eda8a55bc0200e74"
   },
   {
     "type": "s",
     "question": "Where should agent state persist so the machines are not overloaded?",
     "answer": "\"...potentially even work something like [PiDurable] into... something like... a CloudFlare-based system on the edge to persist the state there and off of the GrokBot's machines to allow extreme parallelization by the GrokBot teams without overloading the computer, which has been an issue for us these days...\" (Intent to discuss, not a build.)",
-    "id": "bebdf6e55c5e4795"
+    "id": "e639350b2d78f2a6"
   },
   {
     "type": "r",
     "question": "What do we suspect is overloading the machine?",
     "answer": "\"...although we've checked resources and not found severe RAM or CPU usage, I think what we might be suffering from is in fact... extremely high... network usage, and we might be getting... rate limited on our egress maybe. We're not quite so sure, but... if we can actually... outsource that to some... durable objects or even CloudFlare containers, we might be winners.\" (Intent to discuss, not a build.)",
-    "id": "f5a00fad250034f9"
+    "id": "4de1cc69dc8ab298"
   },
   {
     "type": "p",
     "question": "What does the scripted pipeline rely on?",
     "answer": "\"...all of that... relies on airtight programmatic workflows that use... agents at certain junctures and steps of the way... to... ensure very compliant results to the Sparks methodology.\" (Intent to discuss, not a build.)",
-    "id": "b55ec0456fb6fda7"
+    "id": "cc4cec3584b9008c"
   },
   {
     "type": "p",
     "question": "What stays in the scope of the user along with the GrokBot?",
     "answer": "\"...we pretty much delegate the distillation of user intent into Sparks and the refinement of Sparks and the creation of verification skills based on them. Exactly those three things. Those things go in the scope of the user along with the GrokBot.\" (Intent to discuss, not a build.)",
-    "id": "166e82a189d53222"
+    "id": "9bd83fbad5c9b8ed"
   },
   {
     "type": "p",
     "question": "What happens after Sparks are refined?",
     "answer": "\"...distilling them into specs, the specs into... PR graphs, the PR graphs getting reviewed, the review landing exactly where we specify, like in a comment, the comment being taken by some implementer and fixed... and then finally the PR opened if determined by the GrokBot to be ready for review.\" The fresh-reviewer step is a separate spark. (Intent to discuss, not a build.)",
-    "id": "c59636b8892be815"
+    "id": "2d8c415793f0dfb1"
   },
   {
     "type": "s",
     "question": "What harness runs the pipeline scripts?",
     "answer": "\"We have a path to making simple and robust scripts that execute all of this in either [pi] or [PiDurable] as a harness, most likely [pi] first...\" (Intent to discuss, not a build.)",
-    "id": "c57373a92ca6a70c"
+    "id": "13bfa49459d00df4"
   },
   {
     "type": "s",
     "question": "Who orchestrates the workflow?",
     "answer": "\"...we can even delegate the orchestration of the workflow as it proceeds to an orchestrator agent running in [pi] on a free... smart model like... [NVIDIA Nemotron 3 Ultra]... so that we're not overloading our GrokBots from the large machine at hand.\" (Intent to discuss, not a build.)",
-    "id": "92911636a23c979a"
+    "id": "8a724a018e319138"
   },
   {
     "type": "p",
     "question": "What level of abstraction are we moving to?",
     "answer": "\"So we're really trying to move one level of abstraction up... And then we go an even higher level such that more agents can be managed practically with roughly the same amount of... human cost...\" (Intent to discuss, not a build.)",
-    "id": "0ab4bddea472148b"
+    "id": "1f0d81ce931a408a"
   },
   {
     "type": "a",
     "question": "What does the Sparks style of working demand from the human?",
     "answer": "\"...this will require the refinement of certain assets of human capital such as... being able to... verbally dictate specs in addition to... spatial reasoning, in addition to the ability to draw diagrams and... write quickly with a pen and paper. So the Sparks style of working kind of demands these things from the human, but there's enormous improvements in agent compliance the first time around and adherence the first time around, and mergeability of PRs with conventions that make sense per project.\" (Intent to discuss, not a build.)",
-    "id": "d1bb129ee35d0459"
+    "id": "c7cbf0bc10183cea"
   },
   {
     "type": "p",
     "question": "What is the real game?",
     "answer": "\"So it's really a game of making the agents better at context switching.\" (Intent to discuss, not a build.)",
-    "id": "35aac1c8395a5a6b"
+    "id": "9019cb8288ec8ad1"
   },
   {
     "type": "k",
