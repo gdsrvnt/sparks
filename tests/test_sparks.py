@@ -61,7 +61,7 @@ def record_id(record):
 
 
 def stored(record):
-    """A record the way sparks entry add writes it: with its id as the last key."""
+    """A spark the way sparks spark add writes it: with its id as the last key."""
     return {**record, "id": record_id(record)}
 
 
@@ -89,29 +89,29 @@ def sparks(*args, cwd, env=None, **kwargs):
 def add(path, record, *, cwd=None, **kwargs):
     text = record if isinstance(record, str) else json.dumps(record)
     return sparks(
-        "entry", "add", "--path", str(path), "--json", text, cwd=cwd or path.parent, **kwargs
+        "spark", "add", "--path", str(path), "--json", text, cwd=cwd or path.parent, **kwargs
     )
 
 
 def command(path, record):
-    """The argv of a bin/sparks run that adds record to path."""
-    args = ["entry", "add", "--path", str(path), "--json", json.dumps(record)]
+    """The argv of a bin/sparks run that adds one spark to path."""
+    args = ["spark", "add", "--path", str(path), "--json", json.dumps(record)]
     return [sys.executable, str(BIN), *args]
 
 
 def run_main(path, record):
     """In-process run, so tests can break os functions halfway through a write."""
-    return cli.main(["entry", "add", "--path", str(path), "--json", json.dumps(record)])
+    return cli.main(["spark", "add", "--path", str(path), "--json", json.dumps(record)])
 
 
 def seed(path, records):
-    """Write a spark file the way sparks does and return its bytes."""
+    """Write a list of sparks the way the CLI does and return its bytes."""
     path.write_bytes((json.dumps(records, ensure_ascii=False, indent=2) + "\n").encode())
     return path.read_bytes()
 
 
 def others(directory, name="sparks.json"):
-    """Everything in directory except the spark file: leftover temp or lock files."""
+    """Everything in directory except the list of sparks: leftover temp or lock files."""
     return sorted(p.name for p in directory.iterdir() if p.name != name)
 
 
@@ -126,7 +126,7 @@ def assert_rejected(result, message, code=1):
 # create, append, default path
 
 
-def test_creates_a_missing_file_with_the_record(tmp_path):
+def test_creates_a_missing_file_with_the_spark(tmp_path):
     path = tmp_path / "sparks.json"
     result = add(path, FIRST)
     assert result.returncode == 0, result.stderr
@@ -146,9 +146,10 @@ def test_output_matches_the_repo_example_byte_for_byte(tmp_path):
     assert path.read_bytes() == example.read_bytes().replace(b"\r\n", b"\n")
 
 
-def test_default_path_is_sparks_json_in_the_working_directory(tmp_path):
+@pytest.mark.parametrize("subcommand", ["spark", "entry"])
+def test_default_path_is_sparks_json_in_the_working_directory(tmp_path, subcommand):
     for record in (FIRST, SECOND):  # creates, then appends
-        result = sparks("entry", "add", "--json", json.dumps(record), cwd=tmp_path)
+        result = sparks(subcommand, "add", "--json", json.dumps(record), cwd=tmp_path)
         assert result.returncode == 0, result.stderr
         assert result.stdout == f"added {record_id(record)} to sparks.json\n"
     assert json.loads((tmp_path / "sparks.json").read_bytes()) == [stored(FIRST), stored(SECOND)]
@@ -158,18 +159,18 @@ def test_default_path_is_sparks_json_in_the_working_directory(tmp_path):
 def test_relative_path_resolves_against_the_working_directory(tmp_path):
     (tmp_path / "docs").mkdir()
     result = sparks(
-        "entry", "add", "--path", "docs/notes.json", "--json", json.dumps(FIRST), cwd=tmp_path
+        "spark", "add", "--path", "docs/notes.json", "--json", json.dumps(FIRST), cwd=tmp_path
     )
     assert result.returncode == 0, result.stderr
     assert json.loads((tmp_path / "docs" / "notes.json").read_bytes()) == [stored(FIRST)]
 
 
-def test_appends_after_existing_records_and_keeps_them(tmp_path):
+def test_appends_after_existing_sparks_and_keeps_them(tmp_path):
     path = tmp_path / "sparks.json"
     # Hand-written: compact, with keys in a different order.
     hand_written = {key: FIRST[key] for key in ("answer", "question", "type")}
     path.write_bytes(json.dumps([hand_written]).encode())
-    third = spark("Is a third record kept in order?", "Yes, at the end.")
+    third = spark("Is a third spark kept in order?", "Yes, at the end.")
     assert add(path, SECOND).returncode == 0
     assert add(path, third).returncode == 0
     records = json.loads(path.read_bytes())
@@ -177,7 +178,7 @@ def test_appends_after_existing_records_and_keeps_them(tmp_path):
     assert list(records[0]) == ["answer", "question", "type"]
 
 
-def test_new_record_is_stored_in_schema_key_order(tmp_path):
+def test_new_spark_is_stored_in_schema_key_order(tmp_path):
     path = tmp_path / "sparks.json"
     shuffled = json.dumps({key: FIRST[key] for key in ("answer", "question", "type")})
     assert add(path, shuffled).returncode == 0
@@ -222,7 +223,7 @@ def test_legacy_uppercase_file_is_read_and_rewritten_lowercase(tmp_path):
     assert json.loads(path.read_bytes()) == [spark(spark_type="p"), stored(SECOND)]
 
 @pytest.mark.parametrize("spark_type", ["s", "r"])
-def test_exact_question_replaces_whole_record_in_place(tmp_path, spark_type):
+def test_exact_question_replaces_whole_spark_in_place(tmp_path, spark_type):
     path = tmp_path / "sparks.json"
     third = spark("Another question?", "Another answer.")
     seed(path, [SECOND, FIRST, third])
@@ -257,16 +258,18 @@ def test_json_escape_spelling_does_not_change_question_identity(tmp_path):
     assert json.loads(path.read_bytes()) == [stored(revised)]
 
 
+@pytest.mark.parametrize("subcommand", ["spark", "entry"])
 @pytest.mark.parametrize("incoming", [FIRST, spark(FIRST["question"], "Updated.")])
-def test_multiple_exact_matches_are_refused_without_writing(tmp_path, incoming):
+def test_multiple_exact_matches_are_refused_without_writing(tmp_path, incoming, subcommand):
     path = tmp_path / "sparks.json"
     before = seed(path, [FIRST, SECOND, spark(FIRST["question"], "Old answer.", "r")])
-    assert_rejected(add(path, incoming), "2 records have the exact question")
+    result = sparks(subcommand, "add", "--json", json.dumps(incoming), cwd=tmp_path)
+    assert_rejected(result, "2 sparks have the exact question")
     assert path.read_bytes() == before
     assert others(tmp_path) == []
 
 
-def test_failed_replacement_keeps_old_record(tmp_path, monkeypatch, capsys):
+def test_failed_replacement_keeps_old_spark(tmp_path, monkeypatch, capsys):
     path = tmp_path / "sparks.json"
     before = seed(path, [FIRST, SECOND])
 
@@ -281,7 +284,7 @@ def test_failed_replacement_keeps_old_record(tmp_path, monkeypatch, capsys):
 
 
 @posix
-def test_concurrent_adds_of_same_question_leave_one_record(tmp_path):
+def test_concurrent_adds_of_same_question_leave_one_spark(tmp_path):
     path = tmp_path / "sparks.json"
     records = [spark(FIRST["question"], f"Revision {i}") for i in range(10)]
     processes = [subprocess.Popen(command(path, record), stdout=subprocess.PIPE,
@@ -334,8 +337,8 @@ BAD_INPUT = [
     pytest.param(_payload() + " x", "--json: invalid JSON: Extra data", id="trailing-data"),
     pytest.param(_raw_question("NaN"), "--json: NaN is not valid JSON", id="nan"),
     pytest.param(_raw_question("9" * 5000), "--json: number has too many digits", id="huge-int"),
-    pytest.param(json.dumps([FIRST]), "--json: expected one JSON object", id="array"),
-    pytest.param('"text"', "--json: expected one JSON object", id="string"),
+    pytest.param(json.dumps([FIRST]), "--json: expected one JSON object, a single spark", id="array"),
+    pytest.param('"text"', "--json: expected one JSON object, a single spark", id="string"),
     pytest.param(
         _payload()[:-1] + ', "question": "again"}',
         "--json: duplicate key 'question'",
@@ -397,7 +400,7 @@ def test_rejects_undecodable_argv_bytes_cleanly(tmp_path):
     path = tmp_path / "sparks.json"
     payload = b'{"type": "s", "question": "\xff", "answer": "a"}'
     result = subprocess.run(
-        [sys.executable, str(BIN), "entry", "add", "--path", str(path), "--json", payload],
+        [sys.executable, str(BIN), "spark", "add", "--path", str(path), "--json", payload],
         capture_output=True,
         encoding="utf-8",
     )
@@ -413,7 +416,7 @@ BAD_FILES = [
     pytest.param(b"\xef\xbb\xbf[]", "invalid JSON: Unexpected UTF-8 BOM", id="bom"),
     pytest.param(b"\xff[]", "file is not UTF-8", id="not-utf8"),
     pytest.param(b"{}", "{} is not of type 'array'", id="object"),
-    pytest.param(b"[1]", "[0]: 1 is not of type 'object'", id="not-a-record"),
+    pytest.param(b"[1]", "[0]: 1 is not of type 'object'", id="not-a-spark"),
     pytest.param(b"[NaN]", "NaN is not valid JSON", id="nan"),
     pytest.param(
         json.dumps([{**FIRST, "id": "0" * 15}]).encode(),
@@ -430,7 +433,7 @@ BAD_FILES = [
         "[0]: Additional properties are not allowed ('extra' was unexpected)",
         id="extra-key",
     ),
-    pytest.param(json.dumps([FIRST, FIRST]).encode(), "duplicate id", id="duplicate-record"),
+    pytest.param(json.dumps([FIRST, FIRST]).encode(), "duplicate id", id="duplicate-spark"),
     pytest.param(
         json.dumps([FIRST])[:-2].encode() + b', "answer": "again"}]',
         "duplicate key 'answer'",
@@ -468,7 +471,7 @@ def test_schema_problems_are_capped_and_clipped(tmp_path):
     result = add(path, FIRST)
     assert_rejected(result, "[2].type: 'x' is not one of ['s', 'p', 'a', 'r', 'k']; and 7 more")
     assert result.stderr.count("is not one of") == 3
-    huge = tmp_path / "package.json"  # an object, not a spark file
+    huge = tmp_path / "package.json"  # an object, not a list of sparks
     huge.write_bytes(json.dumps({f"key{i}": "v" * 100 for i in range(10_000)}).encode())
     result = add(huge, FIRST)
     assert_rejected(result, "is not of type 'array'")
@@ -518,13 +521,14 @@ def test_rejects_a_read_only_file(tmp_path):
     assert others(tmp_path) == []
 
 
+@pytest.mark.parametrize("subcommand", ["spark", "entry"])
 @pytest.mark.parametrize(
     "args",
-    [[], ["entry"], ["entry", "add"], ["entry", "add", "--path", "x.json"], ["entry", "drop"]],
-    ids=["no-command", "no-action", "no-json", "path-without-json", "unknown-action"],
+    [[], ["add"], ["add", "--path", "x.json"], ["drop"]],
+    ids=["no-action", "no-json", "path-without-json", "unknown-action"],
 )
-def test_usage_errors_exit_2_without_writing(tmp_path, args):
-    result = sparks(*args, cwd=tmp_path)
+def test_usage_errors_exit_2_without_writing(tmp_path, args, subcommand):
+    result = sparks(subcommand, *args, cwd=tmp_path)
     assert result.returncode == 2
     assert result.stderr.startswith("usage: sparks")
     assert list(tmp_path.iterdir()) == []
@@ -648,7 +652,7 @@ def test_kill_before_replace_keeps_the_old_file_and_the_next_add_works(tmp_path)
         "sys.argv = sys.argv[1:]\n"
         "runpy.run_path(sys.argv[0], run_name='__main__')\n"
     )
-    argv = ["entry", "add", "--path", str(path), "--json", json.dumps(SECOND)]
+    argv = ["spark", "add", "--path", str(path), "--json", json.dumps(SECOND)]
     result = subprocess.run(
         [sys.executable, "-c", die_at_replace, str(BIN), *argv], capture_output=True
     )
@@ -704,7 +708,7 @@ def test_concurrent_adds_all_land(tmp_path):
     records = [spark(f"Question {i}?", f"Answer {i}.") for i in range(20)]
     children = [
         subprocess.Popen(
-            [sys.executable, str(BIN), "entry", "add", "--json", json.dumps(record)],
+            [sys.executable, str(BIN), "spark", "add", "--json", json.dumps(record)],
             cwd=tmp_path,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -797,23 +801,72 @@ def test_a_path_stdout_cannot_encode_is_escaped(tmp_path):
 # help and the uv entry point
 
 
-def test_help_shows_the_usage_exit_codes_and_exact_replace_semantics(tmp_path):
-    result = sparks("entry", "add", "--help", cwd=tmp_path)
+def test_missing_command_exits_2_without_writing(tmp_path):
+    result = sparks(cwd=tmp_path)
+    assert result.returncode == 2
+    assert result.stderr.startswith("usage: sparks")
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("args", [[], ["spark"], ["entry"]])
+def test_command_help_names_sparks_and_the_compatibility_alias(tmp_path, args):
+    result = sparks(*args, "--help", cwd=tmp_path)
+    assert (result.returncode, result.stderr) == (0, "")
+    text = " ".join(result.stdout.split())
+    assert "list of sparks" in text
+    assert "record" not in text
+    if args:
+        assert "'entry' is a backward-compatible alias for 'spark'." in text
+    else:
+        assert "spark (entry)" in text
+
+
+@pytest.mark.parametrize(("first_command", "second_command"), [("spark", "entry"), ("entry", "spark")])
+def test_legacy_entry_alias_and_spark_add_share_the_same_list(tmp_path, first_command, second_command):
+    path = tmp_path / "sparks.json"
+
+    def invoke(subcommand, incoming):
+        result = sparks(subcommand, "add", "--json", json.dumps(incoming), cwd=tmp_path)
+        assert (result.returncode, result.stderr) == (0, "")
+        return result
+
+    created = invoke(first_command, FIRST)
+    assert created.stdout == f"added {record_id(FIRST)} to sparks.json\n"
+    assert json.loads(path.read_bytes()) == [stored(FIRST)]
+    invoke(second_command, SECOND)
+    assert json.loads(path.read_bytes()) == [stored(FIRST), stored(SECOND)]
+    revised = spark(FIRST["question"], "Updated verbatim answer.", "R")
+    replaced = invoke(first_command, revised)
+    expected = {**revised, "type": "r", "id": record_id(FIRST)}
+    assert replaced.stdout == created.stdout
+    assert json.loads(path.read_bytes()) == [expected, stored(SECOND)]
+    before, inode = path.read_bytes(), path.stat().st_ino
+    assert invoke(second_command, revised).stdout == created.stdout
+    assert (path.read_bytes(), path.stat().st_ino) == (before, inode)
+    assert others(tmp_path) == []
+
+
+@pytest.mark.parametrize("subcommand", ["spark", "entry"])
+def test_help_shows_the_usage_exit_codes_and_exact_replace_semantics(tmp_path, subcommand):
+    result = sparks(subcommand, "add", "--help", cwd=tmp_path)
     assert result.returncode == 0
-    assert result.stdout.startswith("usage: sparks entry add [-h] [--path <path>] --json <json>\n")
+    assert result.stdout.startswith("usage: sparks spark add [-h] [--path <path>] --json <json>\n")
+    assert "Add or replace one spark in a list of sparks." in result.stdout
+    assert "one spark:" in result.stdout
+    assert "record" not in result.stdout
     assert "exit status: 0 added or replaced; 1 refused, nothing written; 2 usage error; 3 written" in (
         result.stdout
     )
-    assert "An exact question match replaces the entire record" in result.stdout
+    assert "An exact question match replaces the entire spark" in result.stdout
     assert "Multiple exact matches are" in result.stdout
-    assert "An identical record that already has its id" in result.stdout
+    assert "An identical spark that already has its id" in result.stdout
 
 
 @posix
 @pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv on PATH")
 def test_runs_as_an_executable_uv_script(tmp_path):
     result = subprocess.run(
-        [str(BIN), "entry", "add", "--json", json.dumps(FIRST)],
+        [str(BIN), "spark", "add", "--json", json.dumps(FIRST)],
         cwd=tmp_path,
         capture_output=True,
         encoding="utf-8",
@@ -2125,7 +2178,7 @@ def test_herdr_closed_or_broken_stdout_still_commits(fake_herdr, kind):
 
 
 @pytest.mark.parametrize("kind", ["newline", "non-ascii"])
-def test_herdr_database_output_uses_entry_path_escaping(fake_herdr, kind):
+def test_herdr_database_output_uses_spark_path_escaping(fake_herdr, kind):
     name = "two\nlines.sqlite" if kind == "newline" else "café.sqlite"
     target = fake_herdr.directory / name
     env = {} if kind == "newline" else {"PYTHONIOENCODING": "ascii:strict"}
@@ -2135,7 +2188,7 @@ def test_herdr_database_output_uses_entry_path_escaping(fake_herdr, kind):
     fake_herdr.assert_calls()
 
 
-def test_herdr_snapshot_help_is_noninteractive_and_keeps_entry_help(fake_herdr):
+def test_herdr_snapshot_help_is_noninteractive_and_keeps_spark_help(fake_herdr):
     result = sparks("herdr", "snapshot", "--help", cwd=fake_herdr.directory)
     assert (result.returncode, result.stderr) == (0, "")
     text = " ".join(result.stdout.split())
@@ -2144,9 +2197,9 @@ def test_herdr_snapshot_help_is_noninteractive_and_keeps_entry_help(fake_herdr):
     assert "SQLite" in text
     assert "bare" in text and "herdr" in text and "never" in text.lower()
     assert "missing" in text and "not running" in text and "nonzero" in text
-    entry = sparks("entry", "add", "--help", cwd=fake_herdr.directory)
-    assert entry.returncode == 0
-    assert entry.stdout.startswith("usage: sparks entry add [-h] [--path <path>] --json <json>\n")
+    spark_help = sparks("spark", "add", "--help", cwd=fake_herdr.directory)
+    assert spark_help.returncode == 0
+    assert spark_help.stdout.startswith("usage: sparks spark add [-h] [--path <path>] --json <json>\n")
     fake_herdr.assert_calls(())
     assert not fake_herdr.db.exists()
 
@@ -2183,7 +2236,28 @@ def test_herdr_snapshot_public_files_and_fixtures_have_no_machine_specific_strin
         assert value not in Path(__file__).read_text(encoding="utf-8")
         assert value not in json.dumps(herdr_rows(), ensure_ascii=False)
 
-# ids
+# format and ids
+
+
+def test_schema_describes_a_list_of_sparks_without_changing_its_shape():
+    schema = json.loads((ROOT / "spark.schema.json").read_bytes())
+    assert schema["title"] == "List of sparks"
+    assert "list of sparks" in schema["description"]
+    assert "One spark:" in schema["$defs"]["spark"]["description"]
+    assert schema["$id"].endswith("/spark.schema.json")
+    validator = Draft202012Validator(schema)
+    validator.validate([])
+    validator.validate([FIRST, stored(SECOND)])
+    assert not validator.is_valid(FIRST)
+
+
+@pytest.mark.parametrize("invalid", [1, {}, {"type": "s", "question": "q"}])
+def test_load_shape_diagnostic_calls_the_primitive_a_spark(tmp_path, invalid):
+    path = tmp_path / "sparks.json"
+    path.write_text(json.dumps([invalid]), encoding="utf-8")
+    with pytest.raises(spark_id.SparkFileError, match="each spark must be an object"):
+        spark_id.load(path)
+
 
 def test_add_writes_the_xxh64_id_and_prints_it(tmp_path):
     path = tmp_path / "sparks.json"

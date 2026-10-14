@@ -34,7 +34,7 @@ Then build the **relay-divergence list**. For each relayed or summarized version
 
 ### 3. Write the spec
 
-Explore the repositories the call touched, as in `to-spec`, so the spec uses the project's own vocabulary and respects its `sparks.json` entries. Then write the spec with this template:
+Explore the repositories the call touched, as in `to-spec`, so the spec uses the project's own vocabulary and respects the sparks in its `sparks.json` lists. Then write the spec with this template:
 
 <spec-template>
 

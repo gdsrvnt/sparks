@@ -127,25 +127,25 @@ This applies only while the user is dictating or editing prose. In normal conver
 
 Optional. The user turns it on during the call, for example "let's do the questions" or "start the interrogation". Use it to pair existing verbatim answers (README excerpts, transcripts, or other text the user wrote) with questions the user dictates, so both halves of each spark are the user's own words.
 
-On activation, load the answer pool the user names, or ask for the sources and build it. Keep the pool in a file next to the voice insights log, outside any repository, with each entry's status (pending, recorded, skipped, held), so progress survives a context summary. Each answer is copied exactly from its source, with the source and line range, and classified as one type: S (stack and implementation), P (processes and execution), A (audience and visuals), R (reconnaissance and restrictions), or K (knowledge sources). Every question slot starts blank. The agent never writes a question.
+On activation, load the answer pool the user names, or ask for the sources and build it. Keep the pool in a file next to the voice insights log, outside any repository, with each candidate spark's status (pending, recorded, skipped, held), so progress survives a context summary. Each answer is copied exactly from its source, with the source and line range, and classified as one type: S (stack and implementation), P (processes and execution), A (audience and visuals), R (reconnaissance and restrictions), or K (knowledge sources). Every question slot starts blank. The agent never writes a question.
 
 Also on activation:
-- Ask which directory's `sparks.json` to write. The default is `./sparks.json`.
+- Ask which directory's `sparks.json` list of sparks to write. The default is `./sparks.json`.
 - Tell the voice layer: "Pass every question word for word, in quotes, with nothing added, summarized, or rephrased, until the interrogation ends."
 
 For each answer, one at a time:
-1. Present it: entry number of total, type, source and line range, then the answer word for word (in parts under 1,500 characters if long).
+1. Present it: candidate spark number of total, type, source and line range, then the answer word for word (in parts under 1,500 characters if long).
 2. Wait. The user dictates the question for that answer. If it arrives unquoted or reads like a paraphrase, say so, and add it to the reworded-chunks list if the user keeps it.
 3. Read the question back exactly as received and ask "confirm?". If the user corrects it, take the correction and read it back again. Never fix a likely speech-to-text slip yourself; name it and let the user decide.
-4. Check the target file and this session's recorded questions for the exact same question. `sparks entry add` replaces any record whose question matches exactly, whatever its type. If there is a match, say "replace", read out the old answer, and record only on an explicit yes. Rewording a question after it was recorded appends a new record and leaves the old one in place, so mention that.
-5. Record it with one call. The quoted heredoc keeps the shell away from the text. Inside it, the record is JSON, so escape `"`, `\`, and line breaks so the strings decode to the exact words:
+4. Check the target file and this session's recorded questions for the exact same question. `sparks spark add` replaces any spark whose question matches exactly, whatever its type. If there is a match, say "replace", read out the old answer, and record only on an explicit yes. Rewording a question after it was recorded appends a new spark and leaves the old one in place, so mention that.
+5. Record it with one call. The quoted heredoc keeps the shell away from the text. Inside it, the spark is JSON, so escape `"`, `\`, and line breaks so the strings decode to the exact words:
    ```sh
-   <plugin root>/bin/sparks entry add --path <file> --json "$(cat <<'EOF'
+   <plugin root>/bin/sparks spark add --path <file> --json "$(cat <<'EOF'
    {"type":"<t>","question":"<confirmed question>","answer":"<verbatim answer>"}
    EOF
    )"
    ```
-   Read the file back and check that the decoded question and answer equal the confirmed strings. On a non-zero exit (1 means refused and nothing written; 3 means written but the read-back differed), read the error aloud and hold the entry. If the read-back doesn't match after exit 0, also mark it held. `<plugin root>` is two directories above this file. Then give a receipt: the entry number, new or replaced, the type, and the first five words of the question. Mark the entry recorded in the pool file.
+   Read the file back and check that the decoded question and answer equal the confirmed strings. On a non-zero exit (1 means refused and nothing written; 3 means written but the read-back differed), read the error aloud and hold the candidate spark. If the read-back doesn't match after exit 0, also mark it held. `<plugin root>` is two directories above this file. Then give a receipt: the spark number, new or replaced, the type, and the first five words of the question. Mark the spark recorded in the pool file.
 6. Move to the next answer. The user may skip, reorder, change a type, or stop at any time. Recording is local; commit or push the file only when the user tells you to.
 
 Continue until every answer has a question or the user stops. At the end, report how many were recorded, skipped, and left.
