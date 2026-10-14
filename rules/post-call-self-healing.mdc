@@ -5,8 +5,8 @@ alwaysApply: true
 
 # Post-call self-healing
 
-When a voice call ends (a `spark-voice` hang-up: the relay says the call ended, or delivers what the user said on the call), run the `sparks-postcall` procedure in full before moving on to other work.
+When a voice call ends (a hang-up in `voice-call-end`, the VoiceBot's private hang-up skill from the VoiceBot template: the relay says the call ended, or delivers what the user said on the call; or the VoiceBot sends you the call transcript path), run the `sparks-postcall` procedure in full before moving on to other work.
 
 `sparks-postcall` sets `disable-model-invocation`, so the model will not invoke it on its own. Open the plugin's `skills/sparks-postcall/SKILL.md` and follow it from start to finish. If you cannot open that file, ask the user to run `/sparks-postcall`.
 
-The post-call protocol lives only in `sparks-postcall`, not in `spark-voice`. `spark-voice` stops at hang-up and hands over the transcript paths; it does not extract the spec, verify the call's work, implement gaps, or merge PRs. That self-healing loop is `sparks-postcall`.
+The post-call protocol lives only in `sparks-postcall`, not in the VoiceBot's voice skills (`spark-voice`, `voice-call-end`). `voice-call-end` handles the hang-up and hands over the transcript path; it does not extract the spec, verify the call's work, implement gaps, or merge PRs. That self-healing loop is `sparks-postcall`.
