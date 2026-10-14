@@ -3,7 +3,7 @@
 
 Semantic contradiction across the source is the precedent. This script does
 not grade prose. It compares structural facts (schema, spark_id.TYPES, the
-example record, published XXH64 vectors) and drives two isolated CLI paths.
+example spark, published XXH64 vectors) and drives two isolated CLI paths.
 A script pass is not a verification pass until the agent writes prose.md.
 """
 
@@ -55,7 +55,8 @@ ARTIFACTS = (
     "report.json",
     "index.txt",
     "prose.md",
-    "entry-add.txt",
+    "add.txt",
+    "add-file.json",
     "herdr-snapshot.txt",
     "scratch.txt",
 )
@@ -76,7 +77,7 @@ class Findings:
 
 def repo_root(argument: str | None) -> Path:
     root = Path(argument).resolve() if argument else HELPER_REPO
-    if not (root / "spark.schema.json").is_file() or not (root / "bin" / "sparks").is_file():
+    if not (root / "sparks.schema.json").is_file() or not (root / "bin" / "sparks").is_file():
         raise SystemExit(f"check-verify-sparks: {root}: not a sparks checkout")
     return root
 
@@ -204,8 +205,8 @@ def index_paths(root: Path) -> tuple[list[str], list[str], list[str]]:
             if path.is_file() and path.suffix == ".md":
                 normative.append(rel(root, path))
     implementation = [
-        "spark.schema.json",
-        "spark.json",
+        "sparks.schema.json",
+        "sparks.json",
         "spark_id.py",
         "spark_hash.py",
         "bin/sparks",
@@ -236,7 +237,7 @@ def write_index(evidence: Path, root: Path) -> None:
 
 
 def check_structure(root: Path, spark_id, findings: Findings) -> None:
-    schema = json.loads((root / "spark.schema.json").read_text(encoding="utf-8"))
+    schema = json.loads((root / "sparks.schema.json").read_text(encoding="utf-8"))
     spark = schema["$defs"]["spark"]
     enum = frozenset(spark["properties"]["type"]["enum"])
     required = frozenset(spark["required"])
@@ -275,28 +276,31 @@ def check_skills(root: Path, findings: Findings) -> None:
 
 
 def check_example(root: Path, roots: list[Path], spark_id, findings: Findings, evidence: Path) -> None:
-    example = json.loads((root / "spark.json").read_text(encoding="utf-8"))
+    example = json.loads((root / "sparks.json").read_text(encoding="utf-8"))
     if not isinstance(example, list) or len(example) != 1 or not isinstance(example[0], dict):
-        findings.add("FAIL", "example", "spark.json is not a one-record array")
+        findings.add("FAIL", "example", "sparks.json is not a one-spark list")
         return
-    record = example[0]
-    if set(record) != {"type", "question", "answer", "id"}:
-        findings.add("FAIL", "example", f"spark.json keys are {sorted(record)}")
+    spark = example[0]
+    if set(spark) != {"type", "question", "answer", "id"}:
+        findings.add("FAIL", "example", f"sparks.json keys are {sorted(spark)}")
         return
-    derived = spark_id.derive_id(record["question"], record["answer"], record["type"])
-    if record["id"] != derived or not ID_RE.fullmatch(record["id"]):
-        findings.add("FAIL", "example", f"stored id {record['id']} != derive_id {derived}")
+    if spark["type"] not in SCHEMA:
+        findings.add("FAIL", "example", f"sparks.json type {spark['type']!r} is not a lowercase schema type")
+        return
+    derived = spark_id.derive_id(spark["question"], spark["answer"], spark["type"])
+    if spark["id"] != derived or not ID_RE.fullmatch(spark["id"]):
+        findings.add("FAIL", "example", f"stored id {spark['id']} != derive_id {derived}")
         return
     completed = run_cmd(
-        ["uv", "run", "spark_id.py", "spark.json"],
+        ["uv", "run", "spark_id.py", "sparks.json"],
         cwd=root,
         roots=roots,
     )
     save_transcript(evidence, "spark-id.txt", completed)
     if completed.returncode != 0:
-        findings.add("FAIL", "example", f"uv run spark_id.py spark.json: {completed.stderr.strip()}")
+        findings.add("FAIL", "example", f"uv run spark_id.py sparks.json: {completed.stderr.strip()}")
         return
-    findings.add("PASS", "example", f"spark.json id {record['id']} matches derive_id; spark_id.py exited 0")
+    findings.add("PASS", "example", f"sparks.json id {spark['id']} matches derive_id; spark_id.py exited 0")
 
 
 def check_vectors(spark_hash, findings: Findings) -> None:
@@ -385,37 +389,38 @@ def clear_scratch_line(evidence: Path, scratch: Path) -> None:
     target.write_text("".join(f"{line}\n" for line in kept), encoding="utf-8")
 
 
-def check_entry_add(root: Path, roots: list[Path], findings: Findings, evidence: Path) -> None:
-    record = {
+def check_add(root: Path, roots: list[Path], findings: Findings, evidence: Path) -> None:
+    spark = {
         "type": "s",
         "question": "Why is verification a skill?",
         "answer": "The source is the spec.",
     }
-    revised = {**record, "answer": "The source is the spec, read whole."}
-    spark_bin = ["uv", "run", "--script", str(root / "bin" / "sparks"), "entry", "add"]
+    revised = {**spark, "answer": "The source is the spec, read whole."}
+    spark_bin = ["uv", "run", "--script", str(root / "bin" / "sparks"), "add"]
     scratch = make_scratch(evidence, roots, "verify-sparks-add")
     try:
         path = scratch / "named.json"
         created = run_cmd(
-            [*spark_bin, "--path", str(path), "--json", json.dumps(record)],
+            [*spark_bin, "--path", str(path), "--json", json.dumps(spark)],
             cwd=scratch,
             roots=roots,
         )
         created.cwd = scratch  # type: ignore[attr-defined]
         if created.returncode != 0:
-            save_transcript(evidence, "entry-add.txt", created)
-            findings.add("FAIL", "entry-add", f"explicit --path failed: {created.stderr.strip()}")
+            save_transcript(evidence, "add.txt", created)
+            findings.add("FAIL", "add", f"explicit --path failed: {created.stderr.strip()}")
             return
         written = json.loads(path.read_text(encoding="utf-8"))
         created_id = written[0].get("id", "")
         if (
             len(written) != 1
-            or written[0]["question"] != record["question"]
+            or written[0]["question"] != spark["question"]
+            or written[0].get("type") != "s"
             or not ID_RE.fullmatch(created_id)
-            or not created.stdout.startswith("added ")
+            or not created.stdout.startswith(f"added {created_id} to ")
         ):
-            save_transcript(evidence, "entry-add.txt", created, extra=path.read_text(encoding="utf-8"))
-            findings.add("FAIL", "entry-add", "explicit --path did not write one record with a 16-hex id")
+            save_transcript(evidence, "add.txt", created, extra=path.read_text(encoding="utf-8"))
+            findings.add("FAIL", "add", "explicit --path did not write one spark with lowercase type s and a 16-hex id")
             return
         before = path.read_bytes()
         rejected = run_cmd(
@@ -430,8 +435,8 @@ def check_entry_add(root: Path, roots: list[Path], findings: Findings, evidence:
             or rejected.stderr.count("\n") != 1
             or path.read_bytes() != before
         ):
-            save_transcript(evidence, "entry-add.txt", rejected, extra=f"bytes_unchanged={path.read_bytes() == before}\n")
-            findings.add("FAIL", "entry-add", "invalid JSON was not a one-line sparks: refusal that left the file unchanged")
+            save_transcript(evidence, "add.txt", rejected, extra=f"bytes_unchanged={path.read_bytes() == before}\n")
+            findings.add("FAIL", "add", "invalid JSON was not a one-line sparks: refusal that left the file unchanged")
             return
         replaced = run_cmd(
             [*spark_bin, "--path", str(path), "--json", json.dumps(revised)],
@@ -440,28 +445,38 @@ def check_entry_add(root: Path, roots: list[Path], findings: Findings, evidence:
         )
         replaced.cwd = scratch  # type: ignore[attr-defined]
         after = json.loads(path.read_text(encoding="utf-8"))
-        if replaced.returncode != 0 or len(after) != 1 or after[0]["id"] != created_id or after[0]["answer"] == record["answer"]:
-            save_transcript(evidence, "entry-add.txt", replaced, extra=path.read_text(encoding="utf-8"))
-            findings.add("FAIL", "entry-add", "replacement did not keep the stored id")
+        if (
+            replaced.returncode != 0
+            or len(after) != 1
+            or after[0]["id"] != created_id
+            or after[0].get("type") != "s"
+            or after[0]["answer"] == spark["answer"]
+            or not replaced.stdout.startswith(f"added {created_id} to ")
+        ):
+            save_transcript(evidence, "add.txt", replaced, extra=path.read_text(encoding="utf-8"))
+            findings.add("FAIL", "add", "replacement did not keep the stored id")
             return
         default_dir = scratch / "default-cwd"
         default_dir.mkdir()
         defaulted = run_cmd(
-            [*spark_bin, "--json", json.dumps(record)],
+            [*spark_bin, "--json", json.dumps(spark)],
             cwd=default_dir,
             roots=roots,
         )
         defaulted.cwd = default_dir  # type: ignore[attr-defined]
         default_path = default_dir / "sparks.json"
         if defaulted.returncode != 0 or not default_path.is_file():
-            save_transcript(evidence, "entry-add.txt", defaulted)
-            findings.add("FAIL", "entry-add", "default ./sparks.json path did not create a file")
+            save_transcript(evidence, "add.txt", defaulted)
+            findings.add("FAIL", "add", "default ./sparks.json path did not create a file")
             return
         snapshot = path.read_text(encoding="utf-8")
-        (evidence / "entry-add-file.json").write_text(snapshot, encoding="utf-8")
+        file_copy = evidence / "add-file.json"
+        if file_copy.is_symlink():
+            raise SystemExit(f"check-verify-sparks: refusing to write through symlink {file_copy}")
+        file_copy.write_text(snapshot, encoding="utf-8")
         save_transcript(
             evidence,
-            "entry-add.txt",
+            "add.txt",
             created,
             extra=(
                 f"--- refuse ---\nexit={rejected.returncode}\n{rejected.stderr}"
@@ -472,7 +487,7 @@ def check_entry_add(root: Path, roots: list[Path], findings: Findings, evidence:
         )
         findings.add(
             "PASS",
-            "entry-add",
+            "add",
             "explicit --path create, sparks: refusal, replace keeping the stored id, and default ./sparks.json",
         )
     finally:
@@ -641,7 +656,7 @@ def cmd_doctor(root: Path, roots: list[Path]) -> int:
             problems.append("uv is not on PATH")
         if shutil.which("git") is None:
             problems.append("git is not on PATH")
-        for relative in ("spark.schema.json", "bin/sparks", "spark_id.py", "spark_hash.py", "README.md"):
+        for relative in ("sparks.schema.json", "bin/sparks", "spark_id.py", "spark_hash.py", "README.md"):
             if not (root / relative).is_file():
                 problems.append(f"missing {relative}")
         print(f"repo: {root}")
@@ -659,15 +674,15 @@ def cmd_doctor(root: Path, roots: list[Path]) -> int:
     return 0
 
 
-def cmd_contradict(root: Path, roots: list[Path], evidence: Path, *, with_entry_add: bool) -> int:
+def cmd_contradict(root: Path, roots: list[Path], evidence: Path, *, with_add: bool) -> int:
     spark_hash, spark_id = load_modules(root)
     findings = Findings()
     check_structure(root, spark_id, findings)
     check_skills(root, findings)
     check_example(root, roots, spark_id, findings, evidence)
     check_vectors(spark_hash, findings)
-    if with_entry_add:
-        check_entry_add(root, roots, findings, evidence)
+    if with_add:
+        check_add(root, roots, findings, evidence)
     write_report(evidence, root, roots, findings, merge=False)
     return 1 if findings.failed else 0
 
@@ -705,7 +720,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--out", help="evidence directory outside the checkout; wins over VERIFY_SPARKS_EVIDENCE")
     parser.add_argument(
         "command",
-        choices=("doctor", "contradict", "entry-add", "herdr-snapshot", "run", "cleanup"),
+        choices=("doctor", "contradict", "add", "herdr-snapshot", "run", "cleanup"),
     )
     args = parser.parse_args(argv)
     root = repo_root(args.repo)
@@ -718,16 +733,16 @@ def main(argv: list[str]) -> int:
     if args.command == "cleanup":
         return cmd_cleanup(evidence, roots)
     if args.command == "contradict":
-        return cmd_contradict(root, roots, evidence, with_entry_add=False)
-    if args.command == "entry-add":
+        return cmd_contradict(root, roots, evidence, with_add=False)
+    if args.command == "add":
         findings = Findings()
-        check_entry_add(root, roots, findings, evidence)
+        check_add(root, roots, findings, evidence)
         write_report(evidence, root, roots, findings, merge=True)
-        print("entry-add exit follows this command only; the merged summary may still be FAIL")
+        print("add exit follows this command only; the merged summary may still be FAIL")
         return 1 if findings.failed else 0
     if args.command == "herdr-snapshot":
         return check_herdr(root, roots, evidence)
-    return cmd_contradict(root, roots, evidence, with_entry_add=True)
+    return cmd_contradict(root, roots, evidence, with_add=True)
 
 
 if __name__ == "__main__":

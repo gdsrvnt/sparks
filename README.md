@@ -66,7 +66,7 @@ path/to/sparks/bin/sparks add --json '{"type":"s","question":"What is spark?","a
 
 `bin/spark`, without the s, is an unrelated placeholder that does nothing. On Windows, run `uv run --script bin/sparks add ...`.
 
-Verify this repository with [`.cursor/skills/verify-sparks/SKILL.md`](.cursor/skills/verify-sparks/SKILL.md), not with the pytest files. Source-wide semantic contradiction is the check that matters. The helper `check-verify-sparks` may also run the published XXH64 vectors and one `entry add` path. `tests/test_sparks.py` and `tests/test_spark_hash.py` are the mechanical kernel for CLI and snapshot failures a prose read cannot see. They are not the spec. Do not add phrase locks there.
+Verify this repository with [`.cursor/skills/verify-sparks/SKILL.md`](.cursor/skills/verify-sparks/SKILL.md), not with the pytest files. Source-wide semantic contradiction is the check that matters. The helper `check-verify-sparks` may also run the published XXH64 vectors and one `sparks add` path. `tests/test_sparks.py` and `tests/test_spark_hash.py` are the mechanical kernel for CLI and snapshot failures a prose read cannot see. They are not the spec. Do not add phrase locks there.
 
 ### `sparks herdr snapshot`
 

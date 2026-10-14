@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
-- `.cursor/skills/verify-sparks/`: project-local verification skill generated from the bundled `create-verification-skill`. Source-wide semantic contradiction is the precedent. `scripts/check-verify-sparks` checks decidable cross-file claims, the published XXH64 vectors, and one isolated `entry add` path. It does not replace `spark-verification`.
+- `.cursor/skills/verify-sparks/`: project-local verification skill generated from the bundled `create-verification-skill`. Source-wide semantic contradiction is the precedent. `scripts/check-verify-sparks` checks decidable cross-file claims, the published XXH64 vectors, and one isolated `sparks add` path. It does not replace `spark-verification`.
 
 ### Changed
 

@@ -28,7 +28,7 @@ Preconditions:
   - Do `rules/post-call-self-healing.mdc`, `skills/spark-voice/SKILL.md` hang-up, and `skills/sparks-postcall/SKILL.md` agree that hang-up does no post-call work and that the protocol lives only in `sparks-postcall`?
   - Does `skills/spark-verification/SKILL.md` stay read-only (no edits, no pull requests, no create/maintain modes), and does README say the same?
   - Does `rules/blocker-clearing.mdc` still offer a stop-and-deliberate path that runs `sparks-discuss` and records the outcome as a spark?
-  - Do Unreleased changelog claims about type case, id optionality, the hash, and skill names match the schema, README, and the skills?
+  - Do Unreleased changelog claims about type case, id optionality, the hash, and skill names match the schema, README, and the skills? Type letters in `sparks.json` are lowercase `s`, `p`, `a`, `r`, `k`. The command is `sparks add [--path]`; there is no `entry add` or `spark add`. The files are `sparks.json` and `sparks.schema.json`, not `spark.json` or `spark.schema.json`. A typed Q&A item is a spark; a `sparks.json` is a list of sparks.
   - Does `docs/duplicate-detection.md` still say fuzzy flagging is not implemented, in agreement with `bin/sparks`?
 - **Write the proof.** Save that read as `prose.md` in the evidence directory from the `evidence:` line. One heading per normative and implementation path. The drive is incomplete if any of those paths is missing from `prose.md`.
 - **Do not fix.** Leave the checkout unchanged. A `FAIL` is the result, not a cue to edit the file under test.

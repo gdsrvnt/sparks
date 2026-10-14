@@ -1,4 +1,4 @@
-# Sparks verification map
+# sparks verification map
 
 This directory is the maintained source for verifying the sparks repository. Read the index before driving, then use the matching feature file as the recipe.
 
@@ -6,7 +6,7 @@ Semantic contradiction across the whole source is the precedent. Programmatic dr
 
 ## Baseline preconditions
 
-- The checkout is the sparks repo (`spark.schema.json` and `bin/sparks` exist).
+- The checkout is the sparks repo (`sparks.schema.json` and `bin/sparks` exist).
 - `python3` >= 3.11, `git`, and `uv` are on `PATH`.
 - `check-verify-sparks` is on `PATH` (`export PATH="$PWD/.cursor/skills/verify-sparks/scripts:$PATH"`).
 - `check-verify-sparks doctor` ended with `doctor: OK`.
@@ -18,7 +18,7 @@ Semantic contradiction across the whole source is the precedent. Programmatic dr
 - Start every recipe from the baseline state.
 - Treat every command as literal. Keep flags and quoted strings unchanged.
 - Run decidable checks through `check-verify-sparks contradict`.
-- Run the CLI through `check-verify-sparks entry-add` or `check-verify-sparks herdr-snapshot`, not by hand against a shared file.
+- Run the CLI through `check-verify-sparks add` or `check-verify-sparks herdr-snapshot`, not by hand against a shared file.
 - The prose pass reads every path under `# normative` and `# implementation` in `index.txt`. `# evidence-not-normative` is not a claim. A normative file missing from that index was not verified.
 - Do not report a skipped entry point as verified through a different path.
 
@@ -42,6 +42,6 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 ## Features
 
 - [Semantic contradiction](./semantic-contradiction.md) is the precedent: source-wide claims in README, docs, schema, rules, and first-party skills.
-- [Entry add](./entry-add.md) covers create, exact-question replace, and a refusal that does not write.
-- [Id and hash](./id-and-hash.md) covers the published XXH64 vectors and the example record's stored id.
+- [Add](./add.md) covers `sparks add [--path]`: create, exact-question replace, and a refusal that does not write. There is no `entry add`.
+- [Id and hash](./id-and-hash.md) covers the published XXH64 vectors and the example spark's stored id.
 - [Herdr snapshot](./herdr-snapshot.md) covers an isolated `sparks herdr snapshot --db`.
