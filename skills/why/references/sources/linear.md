@@ -31,7 +31,7 @@ Use the Linear MCP.
 ## Common pitfalls
 
 - **Scope drift.** The ticket the PR references may have been closed and reopened with a different scope. Read the whole history.
-- **Reading intent.** Follow the intent guidance for this source, appended to your prompt from Sparks' `docs/uncovering-intention.md`.
+- **Reading intent.** Follow the intent guidance for this source, appended to your prompt from the sparks plugin's `docs/uncovering-intention.md`.
 - **Stale tickets.** Old tickets often reflect a version of the plan that changed. Check dates and cross-reference with the code's ship date.
 - **Closed-as-duplicate chains.** Follow the duplicate-of relationships back to the canonical ticket.
 - **Private workspace content.** If you can't access an issue, note that as a gap rather than guessing.

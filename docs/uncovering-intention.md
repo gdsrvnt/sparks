@@ -1,6 +1,6 @@
 # Uncovering intention (draft)
 
-How to tell why code came to be the way it is, as opposed to what it does. Everything below except the headings and the *From* notes is by Lauren Tan ([@poteto](https://github.com/poteto)), moved word for word out of the investigator playbooks of the bundled `why` skill (`skills/why/references/`, from pstack at commit `118e73b`). It is used under the MIT License, Copyright (c) 2026 Lauren Tan; see [`skills/LICENSE-poteto`](../skills/LICENSE-poteto) and [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). Headings and *From* notes are Sparks additions. The `why` skill pastes the section for each investigator's source, plus the first section, into that investigator's prompt.
+How to tell why code came to be the way it is, as opposed to what it does. Everything below except the headings and the *From* notes is by Lauren Tan ([@poteto](https://github.com/poteto)), moved word for word out of the investigator playbooks of the bundled `why` skill (`skills/why/references/`, from pstack at commit `118e73b`). It is used under the MIT License, Copyright (c) 2026 Lauren Tan; see [`skills/LICENSE-poteto`](../skills/LICENSE-poteto) and [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). Headings and *From* notes are additions by this plugin. The `why` skill pastes the section for each investigator's source, plus the first section, into that investigator's prompt.
 
 ## Reading intent from evidence
 

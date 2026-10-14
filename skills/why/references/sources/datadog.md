@@ -80,7 +80,7 @@ Use the Datadog MCP. Start broad, then narrow.
 
 ## Common pitfalls
 
-- **Reading intent.** Follow the intent guidance for this source, appended to your prompt from Sparks' `docs/uncovering-intention.md`.
+- **Reading intent.** Follow the intent guidance for this source, appended to your prompt from the sparks plugin's `docs/uncovering-intention.md`.
 - **Vanished telemetry.** Metrics can be renamed, deleted, or have short retention. If you can't find data from the relevant window, that's a gap, not a null result.
 - **Noise at scale.** Narrow log searches by service, tag, and time window aggressively. Use `analyze_datadog_logs` to aggregate rather than dumping raw logs.
 

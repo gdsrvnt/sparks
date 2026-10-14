@@ -12,6 +12,6 @@ Slack MCP tools vary. Check which Slack MCP is available and inspect its tool sc
 
 - **Channel archaeology limits.** Very old messages may be gone due to retention policies. If you can't find anything before a certain date, note the retention cliff.
 - **Unsearched DMs.** Many decisions happen in DMs that aren't searchable. You'll miss them. That's a known limitation.
-- **Reading intent.** Follow the intent guidance for this source, appended to your prompt from Sparks' `docs/uncovering-intention.md`.
+- **Reading intent.** Follow the intent guidance for this source, appended to your prompt from the sparks plugin's `docs/uncovering-intention.md`.
 - **Context collapse in single messages.** Without the thread, a single message often reads differently than in context. Always fetch threads.
 - **Auth failures.** If the MCP isn't authenticated, stop. Don't make up findings. Report that Slack wasn't searchable.

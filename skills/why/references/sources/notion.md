@@ -38,7 +38,7 @@ Use the Notion MCP.
 
 - **Outdated docs.** Specs are often written before implementation and not updated. The doc may describe a plan that changed. Cross-check against the actual PR.
 - **Doc vs. reality drift.** A spec may say "we'll do X" but the code actually does Y. Flag the divergence. The synthesizer will surface the contradiction.
-- **Reading intent.** Follow the intent guidance for this source, appended to your prompt from Sparks' `docs/uncovering-intention.md`.
+- **Reading intent.** Follow the intent guidance for this source, appended to your prompt from the sparks plugin's `docs/uncovering-intention.md`.
 - **Unlinked docs.** The most relevant doc may not be linked from anywhere. Broad keyword searches help.
 - **Multiple drafts.** If a topic has multiple docs, find the one that was finalized or most recently updated. Check dates.
 - **Access-restricted pages.** If you can't access a page, note it as a gap.

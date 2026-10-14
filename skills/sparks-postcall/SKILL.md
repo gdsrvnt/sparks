@@ -4,7 +4,7 @@ description: After a voice or phone call ends, extract a spec from the call tran
 disable-model-invocation: true
 ---
 
-# Sparks postcall
+# sparks postcall
 
 This skill turns a finished call into a spec, then audits and completes the work done during the call. It is adapted from Matt Pocock's `to-spec` skill. The spec template and the "synthesize, don't interview" stance come from his skill. The source changes from the live conversation to the transcript, and the skill then verifies the call's work, fills the gaps, and merges.
 
@@ -34,7 +34,7 @@ Then build the **relay-divergence list**. For each relayed or summarized version
 
 ### 3. Write the spec
 
-Explore the repositories the call touched, as in `to-spec`, so the spec uses the project's own vocabulary and respects its `sparks.json` entries. Then write the spec with this template:
+Explore the repositories the call touched, as in `to-spec`, so the spec uses the project's own vocabulary and respects the sparks in its `sparks.json` lists. Then write the spec with this template:
 
 <spec-template>
 
