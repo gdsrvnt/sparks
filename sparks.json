@@ -168,12 +168,6 @@
     "id": "494239ec0bc10ebe"
   },
   {
-    "type": "p",
-    "question": "What is the practical path for implementing the sparks workflow as airtight programmatic scripts?",
-    "answer": "...we're gonna start now working on kind of a new architecture that I'm imagining for... this product... simple and robust scripts that execute all of this in either Py or PyDurable as a harness, most likely Py first... and we can even delegate the orchestration of the workflow as it proceeds to an orchestrator agent running in Py on a free, big, relatively small, smart model like... Nemotron 3... 550B so that we're not overloading our GrokBots from the large machine at hand.",
-    "id": "574127942a99b719"
-  },
-  {
     "type": "s",
     "question": "What infrastructure problem is the sparks rewrite trying to solve by moving state off the GrokBot machines?",
     "answer": "\"...if we can actually... outsource [the state persistence and network load] to some... durable objects or even CloudFlare containers, we might be winners. But all of that... relies on airtight programmatic workflows that use... agents at certain junctures and steps of the way... to... ensure very compliant results to the Sparks methodology.\"",
@@ -184,5 +178,11 @@
     "question": "How should the sparks workflow move one level of abstraction up so more agents can be managed at roughly the same human cost?",
     "answer": "GrokBot goes from where it is in the loop up to where the user usually sits, that is removed from the worker agents by one layer (most often an orchestrator agent), and the user goes one level higher still, as if the manager of a so-called 10x engineer (that is to say \"someone with proven, scalable agentic workflows\")… That requires refining human capital — verbal spec dictation, spatial reasoning, diagramming, pen-and-paper speed. Sparks-style working demands these, but first-time agent compliance, adherence, and mergeability improve enormously. The real game is making agents better at context switching.",
     "id": "4ae1d8a7a7a72e19"
+  },
+  {
+    "type": "p",
+    "question": "What is the practical path for implementing the sparks workflow as airtight programmatic scripts?",
+    "answer": "...we're gonna start now working on kind of a new architecture that I'm imagining for... this product... simple and robust scripts that execute all of this in either [pi] or [pi durable] as a harness, most likely [pi] first... and we can even delegate the orchestration of the workflow as it proceeds to an orchestrator agent running in [pi] on a free, big, relatively small, smart model like... Nemotron 3... 550B so that we're not overloading our GrokBots from the large machine at hand.",
+    "id": "272e874169ff1655"
   }
 ]
