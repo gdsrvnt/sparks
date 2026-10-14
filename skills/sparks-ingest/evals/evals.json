@@ -1,0 +1,30 @@
+{
+  "skill": "sparks-ingest",
+  "test_cases": [
+    {
+      "name": "clarify_missing_role",
+      "input": "ingest this transcript into the sparks repo with saleem",
+      "assertions": ["asks for role before proceeding", "does not contact peer until role is clear"]
+    },
+    {
+      "name": "clarify_missing_source",
+      "input": "play the role of player with saleem to ingest into github.com/gdsrvnt/sparks",
+      "assertions": ["asks for source before proceeding"]
+    },
+    {
+      "name": "judge_confirms_then_waits",
+      "input": "play the role of judge with saleem to ingest transcript.txt into github.com/gdsrvnt/sparks",
+      "assertions": ["confirms saleem is reachable", "then waits for first proposal", "does not propose"]
+    },
+    {
+      "name": "player_begins_after_confirm",
+      "input": "play the role of player with saleem to ingest transcript.txt into github.com/gdsrvnt/sparks",
+      "assertions": ["confirms saleem is reachable", "then begins proposing sparks", "stops at streak 3"]
+    },
+    {
+      "name": "clarify_medium_if_unclear",
+      "input": "play the role of player with the sparks bot to ingest this chat into the repo",
+      "assertions": ["asks how to reach the sparks bot before confirming reachability"]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "skill": "sparks-ingest",
+  "test_cases": [
+    {
+      "input": "play the role of player with saleem to ingest this transcript into the sparks repo",
+      "should_trigger": true
+    },
+    {
+      "input": "sparks-ingest judge with the sparks bot",
+      "should_trigger": true
+    },
+    {
+      "input": "mine this conversation into sparks.json",
+      "should_trigger": true
+    },
+    {
+      "input": "what is the weather today",
+      "should_trigger": false
+    },
+    {
+      "input": "list open pull requests",
+      "should_trigger": false
+    }
+  ]
+}
