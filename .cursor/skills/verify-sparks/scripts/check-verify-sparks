@@ -277,20 +277,20 @@ def check_skills(root: Path, findings: Findings) -> None:
 
 def check_example(root: Path, roots: list[Path], spark_id, findings: Findings, evidence: Path) -> None:
     example = json.loads((root / "sparks.json").read_text(encoding="utf-8"))
-    if not isinstance(example, list) or len(example) != 1 or not isinstance(example[0], dict):
-        findings.add("FAIL", "example", "sparks.json is not a one-spark list")
+    if not isinstance(example, list) or not example or not all(isinstance(item, dict) for item in example):
+        findings.add("FAIL", "example", "sparks.json is not a non-empty list of sparks")
         return
-    spark = example[0]
-    if set(spark) != {"type", "question", "answer", "id"}:
-        findings.add("FAIL", "example", f"sparks.json keys are {sorted(spark)}")
-        return
-    if spark["type"] not in SCHEMA:
-        findings.add("FAIL", "example", f"sparks.json type {spark['type']!r} is not a lowercase schema type")
-        return
-    derived = spark_id.derive_id(spark["question"], spark["answer"], spark["type"])
-    if spark["id"] != derived or not ID_RE.fullmatch(spark["id"]):
-        findings.add("FAIL", "example", f"stored id {spark['id']} != derive_id {derived}")
-        return
+    for spark in example:
+        if set(spark) != {"type", "question", "answer", "id"}:
+            findings.add("FAIL", "example", f"sparks.json keys are {sorted(spark)}")
+            return
+        if spark["type"] not in SCHEMA:
+            findings.add("FAIL", "example", f"sparks.json type {spark['type']!r} is not a lowercase schema type")
+            return
+        derived = spark_id.derive_id(spark["question"], spark["answer"], spark["type"])
+        if spark["id"] != derived or not ID_RE.fullmatch(spark["id"]):
+            findings.add("FAIL", "example", f"stored id {spark['id']} != derive_id {derived}")
+            return
     completed = run_cmd(
         ["uv", "run", "spark_id.py", "sparks.json"],
         cwd=root,
@@ -300,7 +300,7 @@ def check_example(root: Path, roots: list[Path], spark_id, findings: Findings, e
     if completed.returncode != 0:
         findings.add("FAIL", "example", f"uv run spark_id.py sparks.json: {completed.stderr.strip()}")
         return
-    findings.add("PASS", "example", f"sparks.json id {spark['id']} matches derive_id; spark_id.py exited 0")
+    findings.add("PASS", "example", f"sparks.json: all {len(example)} stored ids match derive_id; spark_id.py exited 0")
 
 
 def check_vectors(spark_hash, findings: Findings) -> None:

@@ -43,5 +43,5 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 
 - [Semantic contradiction](./semantic-contradiction.md) is the precedent: source-wide claims in README, docs, schema, rules, and first-party skills.
 - [Add](./add.md) covers `sparks add [--path]`: create, exact-question replace, and a refusal that does not write. There is no `entry add`.
-- [Id and hash](./id-and-hash.md) covers the published XXH64 vectors and the example spark's stored id.
+- [Id and hash](./id-and-hash.md) covers the published XXH64 vectors and every stored id in the root `sparks.json`.
 - [Herdr snapshot](./herdr-snapshot.md) covers an isolated `sparks herdr snapshot --db`.
