@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `skills/teach/`, with its `THIRD_PARTY_NOTICES.md` entry. Parked on branch `teach-rework` for rework before re-merging ([#51](https://github.com/gdsrvnt/sparks/issues/51)). Findings from [Discussion #45](https://github.com/gdsrvnt/sparks/discussions/45): depends on nonexistent `unslop`, calls `how`/`why` with model invocation disabled, asks `why` for a narrow run it does not allow.
 - `.github/workflows/upstream-tracker.yml`, `.github/upstreams.json`, and `.github/upstream-check.sh`. We no longer track upstream skill sources daily.
 - `skills/grill-me/`, with its `THIRD_PARTY_NOTICES.md` entry. `sparks-discuss` and `sparks-domain` still derive from Matt Pocock's work and keep his credit and `skills/LICENSE-mattpocock`.
+- `skills/study/`: tends three entities (the user, the sparks, the agent) on every turn inside one role, and names four aims (brainstorm, enhance knowledge, add to the sparks, get information out). It reads the root `sparks.json` and paths the user names into one union, quotes stored sparks verbatim unless the current playbook withholds the answer, and writes a held candidate only after the user accepts its exact type, question, answer, and path, through `bin/sparks add`. It keeps the linger-or-hop rule and a session log. The routing order and the ten playbooks are unchanged.
 
 ### Added
 
