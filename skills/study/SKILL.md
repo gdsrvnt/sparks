@@ -37,7 +37,7 @@ The sparks grow only after the user accepts the exact type, question, answer, an
 
 The agent studies the user to parse what they want and to elicit a spark or a quote. It studies the domain only in the respect the user decided. When the subject is the project, use the sparks read, and read other files in the repository when that study needs them. When the subject is the domain, research only the part the user named, in the project or outside it. Give that context so the user can state a better question, answer, or quote. Do not write those words for them. Stop at what the current role allows.
 
-Do not edit `spark_id.py`, `sparks.schema.json`, or `bin/sparks`. Each spark has the keys `type`, `question`, and `answer`, plus an optional `id` that `sparks add` computes and writes. `type` is `S`, `P`, `A`, `R`, or `K`, as the README's [spark types](../../README.md#spark-types) define them. Never write, compute, or type an id yourself.
+Do not edit `spark_id.py`, `sparks.schema.json`, or `bin/sparks`. Each spark has the keys `type`, `question`, and `answer`, plus an optional `id` that `sparks add` computes and writes. `type` is `S`, `P`, `A`, `R`, or `K`, as the README's [spark types](../../philosophy/README.md#spark-types) define them. Never write, compute, or type an id yourself.
 
 ## First reply
 

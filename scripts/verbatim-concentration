@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""Measure how much of an edited text is the speaker's verbatim words.
+
+Usage:
+    scripts/verbatim-concentration ORIGINAL EDITED [--min 0.80] [--runs]
+
+Both files are read as UTF-8. Markdown syntax in EDITED is ignored: only
+word tokens count. A token is a run of letters, digits, and apostrophes
+(curly apostrophes are folded to straight ones), compared in lowercase.
+
+Concentration = (EDITED tokens covered by an in-order verbatim alignment
+with ORIGINAL) / (all EDITED tokens). The alignment is difflib's
+SequenceMatcher over the two token lists with autojunk off, which yields
+in-order matching blocks (verbatim runs). Words that were added, reworded,
+or moved out of order do not count. Removing filler does not lower the score.
+
+Prints the score, both token counts, and the matched count. With --min,
+exits 1 when the score is below the threshold. --runs also lists every
+inserted or replaced span of EDITED, to show what is not verbatim.
+"""
+import argparse
+import difflib
+import re
+import sys
+
+TOKEN = re.compile(r"[a-z0-9']+")
+
+
+def tokens(text):
+    text = text.lower().replace("\u2019", "'").replace("\u2018", "'")
+    return [t.strip("'") for t in TOKEN.findall(text) if t.strip("'")]
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    p.add_argument("original")
+    p.add_argument("edited")
+    p.add_argument("--min", type=float, default=None)
+    p.add_argument("--runs", action="store_true")
+    a = p.parse_args()
+    orig = tokens(open(a.original, encoding="utf-8").read())
+    edit = tokens(open(a.edited, encoding="utf-8").read())
+    if not edit:
+        print("edited text has no words", file=sys.stderr)
+        return 2
+    sm = difflib.SequenceMatcher(None, orig, edit, autojunk=False)
+    matched = sum(b.size for b in sm.get_matching_blocks())
+    score = matched / len(edit)
+    print(f"concentration {score:.4f} matched={matched} edited_words={len(edit)} original_words={len(orig)}")
+    if a.runs:
+        for tag, _, _, j1, j2 in sm.get_opcodes():
+            if tag in ("insert", "replace"):
+                print(f"  not verbatim: {' '.join(edit[j1:j2])}")
+    if a.min is not None and score < a.min:
+        print(f"below minimum {a.min}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
