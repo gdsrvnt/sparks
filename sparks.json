@@ -170,7 +170,7 @@
   {
     "type": "p",
     "question": "How should the sparks workflow move one level of abstraction up so more agents can be managed at roughly the same human cost?",
-    "answer": "\"We're trying to move one level of abstraction up: the GrokBot goes from where we are sitting now to being worked, and we go one level higher so more agents can be managed at roughly the same human cost. That requires refining human capital — verbal spec dictation, spatial reasoning, diagramming, pen-and-paper speed. Sparks-style working demands these, but first-time agent compliance, adherence, and mergeability improve enormously. The real game is making agents better at context switching.\"",
-    "id": "25e5fdda4256683c"
+    "answer": "\"...we're really trying to move one level of abstraction up from our... current position where our GrokBot goes to where we are sitting now, and be worked... And then we go an even higher level such that more agents can be managed practically with roughly the same amount of... human cost, although obviously this will require the refinement of certain assets of human capital such as... being able to write specs verbally or to verbally dictate specs in addition to... spatial reasoning, in addition to the ability to draw diagrams and read, write quickly with a pen and paper. So the Sparks style of working kind of demands these things from the human, but there's enormous improvements in agent compliance the first time around and adherence the first time around, and mergeability of PRs with conventions that make sense per project. So it's really a game of making the agents better at context switching.\"",
+    "id": "ac929c41f5083eb5"
   }
 ]
