@@ -2128,6 +2128,7 @@ def test_herdr_snapshot_public_files_and_fixtures_have_no_machine_specific_strin
         BIN, ROOT / "README.md", ROOT / "CHANGELOG.md",
         ROOT / "skills" / "herdr-operations" / "SKILL.md",
         ROOT / "skills" / "herdr-operations" / "scripts" / "README.md",
+        ROOT / "skills" / "setup-sparks" / "SKILL.md",
     )
     for path in public_files:
         text = path.read_text(encoding="utf-8")

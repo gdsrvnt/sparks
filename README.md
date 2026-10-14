@@ -30,8 +30,8 @@ Discovery uses the default folders. The manifest does not set custom component p
 
 | Component | Path | Status |
 | --- | --- | --- |
-| Skills | `skills/` | `sparks-discuss`, `sparks-domain`, `sparks-postcall`, `spark-voice`, `spark-verification`, `study`, and `herdr-operations`; `ketchup`, `how`, `why`, `bro`, `create-verification-skill`, and `maintain-verification-skill` from poteto's pstack; and `show-me` from HumanLayer. See `THIRD_PARTY_NOTICES.md`. |
-| Rules | `rules/` | `blocker-clearing`: when work is blocked on you, the agent asks one multiple-choice question with options that each clear the blocker, a free-text field, and a stop-and-deliberate option that runs `sparks-discuss` and records the outcome as a spark. `post-call-self-healing`: after every voice call ends, the agent runs the `sparks-postcall` self-healing procedure in full (opens `skills/sparks-postcall/SKILL.md`, or asks you to run `/sparks-postcall`). The post-call protocol lives only in `sparks-postcall`, not in `spark-voice`. |
+| Skills | `skills/` | `sparks-discuss`, `sparks-domain`, `sparks-postcall`, `setup-sparks`, `spark-verification`, `study`, and `herdr-operations`; `ketchup`, `how`, `why`, `bro`, `create-verification-skill`, and `maintain-verification-skill` from poteto's pstack; and `show-me` from HumanLayer. See `THIRD_PARTY_NOTICES.md`. |
+| Rules | `rules/` | `blocker-clearing`: when work is blocked on you, the agent asks one multiple-choice question with options that each clear the blocker, a free-text field, and a stop-and-deliberate option that runs `sparks-discuss` and records the outcome as a spark. `post-call-self-healing`: after every voice call ends (a hang-up in the VoiceBot's `voice-call-end`, or the VoiceBot sending you the call transcript path), the agent runs the `sparks-postcall` self-healing procedure in full (opens `skills/sparks-postcall/SKILL.md`, or asks you to run `/sparks-postcall`). The post-call protocol lives only in `sparks-postcall`, not in the VoiceBot's voice skills (`spark-voice`, `voice-call-end`). |
 | Agents | `agents/` | Not included. |
 | Commands | `commands/` | Not included. |
 | Hooks | `hooks/hooks.json` | Not included. |
@@ -40,6 +40,8 @@ Discovery uses the default folders. The manifest does not set custom component p
 Cursor discovers plugin skills from `skills/` and rules from `rules/`.
 
 `sparks-discuss` interviews you, one persona at a time, and writes your answers verbatim into `sparks.json` with `sparks add`. `spark-verification` is read-only: for a PR or branch it lists the diff, loads every `sparks.json` that applies to each changed file's directory (ancestors apply globally by default; see below), and reports violations with the file and the quoted spark. It never edits code or opens PRs. poteto's `create-verification-skill` and `maintain-verification-skill` remain bundled for direct use; `spark-verification` no longer wraps them.
+
+`setup-sparks` sets up the VoiceBot, the bot teammate that handles your voice calls. You install it from the [VoiceBot template](https://x.ai/bot/GmSYdQGx5czseTDLcA2Ct), which carries its rules and its private voice skills (`spark-voice` for the call, `voice-call-end` for hang-up); setup checks that they are there, private, and pointing at this plugin's files. If pi won't run Anthropic models as a third-party harness, setup writes a `SYSTEM.md` in pi's agent directory. It always writes `.pi/SYSTEM.md` in the VoiceBot's workspace. Either file replaces pi's default system prompt, including its default tools, rules, and docs sections.
 
 ## How to use spark
 

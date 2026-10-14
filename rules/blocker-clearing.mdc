@@ -15,4 +15,4 @@ The question has:
 
 Use the harness's structured question tool when one exists. If it caps the number of options, drop clearing options down to two, never "Stop and deliberate". Without such a tool, write the question as a numbered list the user can answer by number.
 
-This rule does not apply while a skill that sets its own question format is running, such as `sparks-discuss`, `sparks-domain`, `spark-voice`, or `study`. That skill's rules win.
+This rule does not apply while a skill that sets its own question format is running, such as `sparks-discuss`, `sparks-domain`, `study`, or the VoiceBot's `spark-voice` private skill (installed by `setup-sparks`). That skill's rules win.

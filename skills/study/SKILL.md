@@ -105,7 +105,7 @@ A playbook does not run these steps. A write does not change the role. Running t
 
 ## Other sparks skills
 
-When add is the foreground aim at length, such as a persona-by-persona interview to build the project's sparks, offer `/sparks-discuss`, or `/sparks-domain` to settle the project's terms. The user starts it. Short single adds stay in Study. On a voice call, `spark-voice` handles the call and its relay. Study holds the dictated words that reach it like any others.
+When add is the foreground aim at length, such as a persona-by-persona interview to build the project's sparks, offer `/sparks-discuss`, or `/sparks-domain` to settle the project's terms. The user starts it. Short single adds stay in Study. On a voice call, the VoiceBot's `spark-voice` private skill (installed from its template by `/setup-sparks`) handles the call and its relay. Study holds the dictated words that reach it like any others.
 
 ## Playbooks
 
