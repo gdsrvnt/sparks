@@ -1,0 +1,711 @@
+#!/usr/bin/env python3
+"""check-sparks-hygiene: read-only repository hygiene checks for gdsrvnt/sparks.
+
+Checks what a published checkout shows: license and notice files, the Cursor
+plugin manifest, tracked stray files, secrets and private text, relative
+markdown links, and text formatting. It reads tracked files from the working
+tree and never writes into the repository. The report goes to an evidence
+directory outside the checkout.
+
+Statuses: PASS, FAIL, WARN (reported, not failing), SKIP (input not present).
+Exit: 0 with no FAIL, 1 with any FAIL, 2 on usage or environment errors.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import fnmatch
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+SELF = Path(__file__).resolve()
+SKILL_DIR = SELF.parent.parent
+DEFAULT_REPO = SKILL_DIR.parent.parent.parent
+
+# .claude/ is tracked on purpose (project-local agent skills). Never flag it as stray.
+INTENTIONALLY_TRACKED = (".claude/",)
+
+STRAY_PATTERNS = (
+    "__pycache__/*", "*.pyc", "*.pyo", ".DS_Store", "Thumbs.db", "desktop.ini",
+    "*.local", "*.local.*", ".env", ".env.*", "*.swp", "*.swo", "*~", ".#*", "#*#",
+    "*.tmp", "*.temp", "*.bak", "*.orig", "*.rej", "*.log",
+    ".pytest_cache/*", ".mypy_cache/*", ".ruff_cache/*", ".venv/*", "venv/*",
+    "node_modules/*", ".idea/*", ".vscode/*", "*.egg-info/*", "dist/*", "build/*",
+)
+# What a .gitignore should cover once it exists; each entry is (label, probe path).
+GITIGNORE_PROBES = (
+    ("python cache", "pkg/__pycache__/x.cpython-313.pyc"),
+    ("compiled python", "x.pyc"),
+    ("macOS metadata", ".DS_Store"),
+    ("local-only files", "notes.local"),
+    ("editor swap", ".x.swp"),
+    ("editor backup", "x~"),
+    ("env files", ".env"),
+)
+# Development spark records live on this branch, tracked there and never on main.
+DEV_BRANCH = "sparks/development-main"
+CANONICAL_SPARK_FILES = ("spark.json", "spark.schema.json")
+
+SECRET_PATTERNS = (
+    ("github token", r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}\b"),
+    ("github fine-grained token", r"\bgithub_pat_[A-Za-z0-9_]{40,}\b"),
+    ("anthropic key", r"\bsk-ant-[A-Za-z0-9_-]{20,}"),
+    ("openai-style key", r"\bsk-(?:proj-)?[A-Za-z0-9]{32,}\b"),
+    ("aws access key", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    ("google api key", r"\bAIza[0-9A-Za-z_-]{35}\b"),
+    ("slack token", r"\bxox[abpors]-[A-Za-z0-9-]{10,}"),
+    ("private key block", r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    ("bearer credential", r"(?i)\bauthorization:\s*(?:bearer|token)\s+[A-Za-z0-9._-]{20,}"),
+    ("assigned secret", r"(?i)\b(?:api[_-]?key|secret|token|password|passwd)\b\s*[:=]\s*['\"][A-Za-z0-9/+_.-]{16,}['\"]"),
+)
+EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+EMAIL_ALLOWED = (
+    re.compile(r"(?i)^(?:no-?reply|noreply)@"),
+    re.compile(r"(?i)@users\.noreply\.github\.com$"),
+    re.compile(r"(?i)@(?:[a-z0-9-]+\.)*example\.(?:com|org|net)$"),
+)
+HOME_PATH_RE = re.compile(r"(?:/home/[A-Za-z0-9._-]+|/Users/[A-Za-z0-9._-]+|/root(?=/)|[A-Za-z]:\\\\?Users\\\\?[A-Za-z0-9._-]+)")
+HOME_PATH_PLACEHOLDERS = {"/home/user", "/home/username", "/home/me", "/Users/user", "/Users/username", "/Users/me", "/Users/you", "/home/you"}
+
+MD_LINK_RE = re.compile(r"!?\[(?:[^\]\\]|\\.)*\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
+MD_REF_RE = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s+.*)?$")
+HTML_LINK_RE = re.compile(r"""<(?:a|img)\b[^>]*?\b(?:href|src)\s*=\s*["']([^"']+)["']""", re.I)
+FENCE_RE = re.compile(r"^\s{0,3}(```+|~~~+)")
+INLINE_CODE_RE = re.compile(r"(`+)(?:(?!\1).)+?\1")
+HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$")
+
+TEXT_EXTS = {".md", ".json", ".py", ".sh", ".yml", ".yaml", ".toml", ".txt", ".cfg", ".ini", ""}
+LARGE_FILE_BYTES = 1_000_000
+
+
+class Result:
+    def __init__(self, check: str, title: str):
+        self.check, self.title = check, title
+        self.status = "PASS"
+        self.lines: list[str] = []
+
+    def fail(self, msg: str) -> None:
+        self.status = "FAIL"
+        self.lines.append(f"FAIL {msg}")
+
+    def warn(self, msg: str) -> None:
+        if self.status == "PASS":
+            self.status = "WARN"
+        self.lines.append(f"WARN {msg}")
+
+    def note(self, msg: str) -> None:
+        self.lines.append(f"  {msg}")
+
+    def skip(self, msg: str) -> None:
+        if self.status == "PASS":
+            self.status = "SKIP"
+        self.lines.append(f"SKIP {msg}")
+
+
+class Repo:
+    def __init__(self, root: Path):
+        self.root = root
+        self.tracked = self._git("ls-files", "-z").split("\0")
+        self.tracked = [p for p in self.tracked if p]
+        self.modes = {}
+        for row in self._git("ls-files", "-s", "-z").split("\0"):
+            if row:
+                meta, path = row.split("\t", 1)
+                self.modes[path] = meta.split()[0]
+        self._text_cache: dict[str, str | None] = {}
+
+    def _git(self, *args: str) -> str:
+        return subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True, text=True).stdout
+
+    def git_ok(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", str(self.root), *args], capture_output=True, text=True)
+
+    def untracked(self, ignored: bool) -> list[str]:
+        args = ["ls-files", "-z", "--others"] + (["--ignored", "--exclude-standard"] if ignored else ["--exclude-standard"])
+        return [p for p in self._git(*args).split("\0") if p]
+
+    def text(self, path: str) -> str | None:
+        """Decoded file content, or None for binary, missing, or symlinked paths."""
+        if path not in self._text_cache:
+            full = self.root / path
+            content = None
+            if full.is_file() and not full.is_symlink():
+                data = full.read_bytes()
+                if b"\0" not in data[:8192]:
+                    try:
+                        content = data.decode("utf-8")
+                    except UnicodeDecodeError:
+                        content = None
+            self._text_cache[path] = content
+        return self._text_cache[path]
+
+
+def vendored_paths(repo: Repo) -> list[str]:
+    """Path prefixes that THIRD_PARTY_NOTICES.md says are copied unchanged."""
+    text = repo.text("THIRD_PARTY_NOTICES.md") or ""
+    return [p.rstrip("/") + "/" for p in re.findall(r"^-\s+`([^`]+/)`", text, re.M)] + [
+        p.rstrip("/") + "/" for p in re.findall(r"^`([^`]+/)` is copied unchanged", text, re.M)
+    ]
+
+
+def is_vendored(path: str, prefixes: list[str]) -> bool:
+    return any(path.startswith(p) for p in prefixes)
+
+
+def strip_code(md: str) -> list[tuple[int, str]]:
+    """Markdown lines outside fenced code, with inline code removed."""
+    out, fence = [], None
+    for n, line in enumerate(md.splitlines(), 1):
+        m = FENCE_RE.match(line)
+        if m:
+            marker = m.group(1)
+            if fence is None:
+                fence = marker[0] * 3
+            elif marker.startswith(fence):
+                fence = None
+            continue
+        if fence is None:
+            out.append((n, INLINE_CODE_RE.sub("", line)))
+    return out
+
+
+def github_slug(heading: str) -> str:
+    text = re.sub(r"<[^>]+>", "", heading)
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    text = text.replace("`", "").strip().lower()
+    text = re.sub(r"[^\w\- ]", "", text, flags=re.UNICODE)
+    return text.replace(" ", "-")
+
+
+def anchors(md: str) -> set[str]:
+    seen: dict[str, int] = {}
+    result = set()
+    for _, line in strip_code(md):
+        m = HEADING_RE.match(line)
+        if not m:
+            continue
+        slug = github_slug(m.group(1))
+        count = seen.get(slug, 0)
+        result.add(slug if count == 0 else f"{slug}-{count}")
+        seen[slug] = count + 1
+    for m in re.finditer(r"""<a\s+(?:name|id)=["']([^"']+)["']""", md):
+        result.add(m.group(1))
+    return result
+
+
+# ---------------------------------------------------------------- checks
+
+
+def check_docs(repo: Repo) -> Result:
+    r = Result("docs", "README, LICENSE, THIRD_PARTY_NOTICES present and consistent")
+    for name in ("README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"):
+        if name not in repo.tracked:
+            r.fail(f"{name} is not tracked")
+        elif not (repo.text(name) or "").strip():
+            r.fail(f"{name} is empty")
+    lic = repo.text("LICENSE") or ""
+    readme = repo.text("README.md") or ""
+    manifest = {}
+    try:
+        manifest = json.loads(repo.text(".cursor-plugin/plugin.json") or "{}")
+    except json.JSONDecodeError:
+        pass
+    lic_kind = "MIT" if lic.startswith("MIT License") else None
+    holder = re.search(r"^Copyright \(c\) (\d{4}) (.+)$", lic, re.M)
+    if not lic_kind:
+        r.warn("LICENSE is not recognized as MIT; consistency checks against it are partial")
+    if not holder:
+        r.fail("LICENSE has no 'Copyright (c) <year> <holder>' line")
+    if manifest.get("license") and lic_kind and manifest["license"] != lic_kind:
+        r.fail(f"plugin.json license {manifest['license']!r} != LICENSE {lic_kind!r}")
+    author = (manifest.get("author") or {}).get("name") if isinstance(manifest.get("author"), dict) else manifest.get("author")
+    if holder and author and author != holder.group(2).strip():
+        r.fail(f"plugin.json author {author!r} != LICENSE holder {holder.group(2).strip()!r}")
+    lic_section = re.search(r"^## License\s*\n(.*?)(?=^## |\Z)", readme, re.M | re.S)
+    if not lic_section:
+        r.fail("README has no '## License' section")
+    else:
+        body = lic_section.group(1)
+        if lic_kind and lic_kind not in body:
+            r.fail(f"README License section does not name {lic_kind}")
+        if holder and holder.group(0).replace("Copyright (c) ", "") not in body:
+            r.fail(f"README License section does not repeat '{holder.group(0)}'")
+        for ref in ("LICENSE", "THIRD_PARTY_NOTICES.md"):
+            if ref not in body:
+                r.fail(f"README License section does not point to {ref}")
+    r.note(f"LICENSE: {lic_kind or 'unknown'}, {holder.group(0) if holder else 'no holder'}; plugin.json license={manifest.get('license')!r} author={author!r}")
+    return r
+
+
+def check_notices(repo: Repo) -> Result:
+    r = Result("notices", "third-party notices match vendored files, license copies, and upstreams")
+    notices = repo.text("THIRD_PARTY_NOTICES.md")
+    if notices is None:
+        r.skip("THIRD_PARTY_NOTICES.md not present")
+        return r
+    for path in sorted(set(re.findall(r"`((?:skills|\.claude)/[^`]+)`", notices))):
+        if not (repo.root / path).exists():
+            r.fail(f"THIRD_PARTY_NOTICES.md names {path}, which does not exist")
+    for lic in sorted(p for p in repo.tracked if re.match(r"skills/LICENSE-", p)):
+        if lic not in notices:
+            r.fail(f"{lic} is tracked but not referenced from THIRD_PARTY_NOTICES.md")
+    for sha in set(re.findall(r"/tree/([0-9a-f]{40})/", notices)):
+        if notices.count(sha) < 2:
+            r.warn(f"pinned commit {sha[:12]} appears in a URL but not in the text")
+    readme = repo.text("README.md") or ""
+    skill_dirs = sorted({p.split("/")[1] for p in repo.tracked if re.match(r"skills/[^/]+/SKILL\.md$", p)})
+    for name in skill_dirs:
+        if f"`{name}`" not in readme:
+            r.fail(f"skills/{name}/ is shipped but README does not list `{name}`")
+    upstreams_text = repo.text(".github/upstreams.json")
+    if upstreams_text is None:
+        r.skip(".github/upstreams.json not present; upstream/notice cross-check skipped")
+    else:
+        try:
+            upstreams = json.loads(upstreams_text)
+        except json.JSONDecodeError as exc:
+            r.fail(f".github/upstreams.json does not parse: {exc}")
+            upstreams = []
+        for up in upstreams:
+            for skill in up.get("sparks_skills", []):
+                if not (repo.root / "skills" / skill).is_dir():
+                    r.fail(f"upstreams.json lists skill {skill!r} with no skills/{skill}/")
+                elif f"skills/{skill}/" not in notices:
+                    r.warn(f"skills/{skill}/ tracks upstream {up.get('repo')} but THIRD_PARTY_NOTICES.md has no entry for it")
+                elif up.get("pinned_ref") and len(up["pinned_ref"]) == 40 and up["pinned_ref"] not in notices:
+                    r.fail(f"skills/{skill}/ pinned_ref {up['pinned_ref'][:12]} differs from THIRD_PARTY_NOTICES.md")
+    r.note(f"shipped skills: {', '.join(skill_dirs)}")
+    return r
+
+
+def check_manifest(repo: Repo) -> Result:
+    r = Result("manifest", ".cursor-plugin/plugin.json parses and its paths exist")
+    path = ".cursor-plugin/plugin.json"
+    text = repo.text(path)
+    if text is None:
+        r.fail(f"{path} missing")
+        return r
+    try:
+        m = json.loads(text)
+    except json.JSONDecodeError as exc:
+        r.fail(f"{path} does not parse: {exc}")
+        return r
+    if not isinstance(m, dict):
+        r.fail(f"{path} is not a JSON object")
+        return r
+    name = m.get("name")
+    if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9]+(?:[-.][a-z0-9]+)*", name):
+        r.fail(f"name {name!r} is not a lowercase kebab-case string")
+    if "version" in m and not re.fullmatch(r"\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?", str(m["version"])):
+        r.fail(f"version {m['version']!r} is not semver")
+    for key in ("description", "version", "license"):
+        if not m.get(key):
+            r.warn(f"{key} is missing or empty")
+    for key in ("homepage", "repository"):
+        v = m.get(key)
+        url = v.get("url") if isinstance(v, dict) else v
+        if url and not re.match(r"https://", url):
+            r.fail(f"{key} {url!r} is not an https URL")
+    path_keys = ("logo", "skills", "rules", "agents", "commands", "hooks", "mcpServers")
+    for key in path_keys:
+        val = m.get(key)
+        refs = [val] if isinstance(val, str) else [v for v in val if isinstance(v, str)] if isinstance(val, list) else []
+        for ref in refs:
+            if re.match(r"https?://", ref):
+                continue
+            target = (repo.root / ref).resolve()
+            if not target.exists():
+                r.fail(f"{key} -> {ref} does not exist")
+            elif repo.root.resolve() not in target.parents and target != repo.root.resolve():
+                r.fail(f"{key} -> {ref} points outside the repository")
+    if "skills" not in m:
+        skills = [p for p in repo.tracked if re.match(r"skills/[^/]+/SKILL\.md$", p)]
+        if not skills:
+            r.fail("no skills key and no skills/*/SKILL.md for default discovery")
+        for skill in skills:
+            body = repo.text(skill) or ""
+            fm = re.match(r"---\n(.*?)\n---\n", body, re.S)
+            dirname = skill.split("/")[1]
+            if not fm:
+                r.fail(f"{skill} has no YAML frontmatter")
+                continue
+            sk_name = re.search(r"^name:\s*['\"]?([^'\"\n]+)['\"]?\s*$", fm.group(1), re.M)
+            if not sk_name or sk_name.group(1).strip() != dirname:
+                r.fail(f"{skill} frontmatter name {sk_name.group(1).strip() if sk_name else None!r} != directory {dirname!r}")
+            if not re.search(r"^description:\s*\S", fm.group(1), re.M):
+                r.fail(f"{skill} frontmatter has no description")
+        r.note(f"default skill discovery: {len(skills)} skills/*/SKILL.md")
+    r.note(f"keys: {', '.join(sorted(m))}")
+    return r
+
+
+def check_tracked(repo: Repo) -> Result:
+    r = Result("tracked", "no stray, temp, cache, or local-only files tracked")
+    hits = []
+    for p in repo.tracked:
+        if p.startswith(INTENTIONALLY_TRACKED):
+            continue
+        parts = p.split("/")
+        for pat in STRAY_PATTERNS:
+            if any(fnmatch.fnmatch("/".join(parts[i:]), pat) or fnmatch.fnmatch(parts[i], pat) for i in range(len(parts))):
+                hits.append((p, pat))
+                break
+    for p, pat in hits:
+        r.fail(f"{p} is tracked (matches {pat})")
+    for p in repo.tracked:
+        full = repo.root / p
+        if full.is_file() and full.stat().st_size > LARGE_FILE_BYTES:
+            r.warn(f"{p} is {full.stat().st_size} bytes")
+        if repo.modes.get(p) == "120000":
+            r.warn(f"{p} is a symlink")
+    missing = [p for p in repo.tracked if not (repo.root / p).exists() and not (repo.root / p).is_symlink()]
+    for p in missing:
+        r.warn(f"{p} is tracked but missing from the working tree")
+    r.note(f"{len(repo.tracked)} tracked files; .claude/ exempt (tracked on purpose)")
+    return r
+
+
+def check_gitignore(repo: Repo) -> Result:
+    r = Result("gitignore", "if present, .gitignore covers cache/temp/local-only files and keeps .claude/ tracked")
+    if not (repo.root / ".gitignore").exists():
+        r.skip(".gitignore not yet present")
+        return r
+    if ".gitignore" not in repo.tracked:
+        r.warn(".gitignore exists but is not tracked")
+    for label, probe in GITIGNORE_PROBES:
+        res = repo.git_ok("check-ignore", "--no-index", "-q", probe)
+        if res.returncode != 0:
+            r.warn(f"does not ignore {label} (probe {probe})")
+    for probe in (".claude/skills/x/SKILL.md", ".claude/settings.json"):
+        res = repo.git_ok("check-ignore", "--no-index", "-v", probe)
+        if res.returncode == 0:
+            r.fail(f"ignores {probe} via {res.stdout.strip()}; .claude/ must stay tracked")
+    if repo.git_ok("check-ignore", "--no-index", "-q", "sparks.json").returncode == 0:
+        r.note(f"ignores sparks.json; {DEV_BRANCH} tracks them, so adding one there needs git add -f")
+    tracked_ignored = [p for p in repo._git("ls-files", "-z", "-ci", "--exclude-standard").split("\0") if p]
+    for p in tracked_ignored:
+        r.warn(f"{p} is tracked but matches an ignore rule")
+    return r
+
+
+def validate_spark_records(data, schema: dict) -> list[str]:
+    """Validate against spark.schema.json; jsonschema when installed, else the schema's own rules."""
+    try:
+        import jsonschema  # type: ignore
+
+        v = jsonschema.Draft202012Validator(schema)
+        return [f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}" for e in v.iter_errors(data)]
+    except ImportError:
+        pass
+    spec = schema.get("$defs", {}).get("spark", {})
+    allowed = set(spec.get("properties", {}))
+    required = spec.get("required", [])
+    types = spec.get("properties", {}).get("type", {}).get("enum", [])
+    if not isinstance(data, list):
+        return ["<root>: is not an array"]
+    errs = []
+    for i, rec in enumerate(data):
+        if not isinstance(rec, dict):
+            errs.append(f"{i}: is not an object")
+            continue
+        for k in required:
+            if k not in rec:
+                errs.append(f"{i}: missing {k!r}")
+        for k in rec:
+            if k not in allowed:
+                errs.append(f"{i}: unexpected key {k!r}")
+        for k in allowed - {"type"}:
+            if k in rec and not isinstance(rec[k], str):
+                errs.append(f"{i}.{k}: is not a string")
+        if "type" in rec and rec["type"] not in types:
+            errs.append(f"{i}.type: {rec['type']!r} not in {types}")
+    return errs
+
+
+def spark_errors(text: str, schema: dict) -> list[str]:
+    try:
+        return validate_spark_records(json.loads(text), schema)
+    except json.JSONDecodeError as exc:
+        return [f"does not parse: {exc}"]
+
+
+def check_sparks_files(repo: Repo) -> Result:
+    r = Result("sparks-files", f"canonical spark files valid; no extra spark files off {DEV_BRANCH}; dev branch records valid")
+    schema_text = repo.text("spark.schema.json")
+    if schema_text is None:
+        r.fail("spark.schema.json missing")
+        return r
+    try:
+        schema = json.loads(schema_text)
+    except json.JSONDecodeError as exc:
+        r.fail(f"spark.schema.json does not parse: {exc}")
+        return r
+    if "spark.json" in repo.tracked:
+        errs = spark_errors(repo.text("spark.json") or "", schema)
+        for e in errs:
+            r.fail(f"spark.json: {e}")
+        if not errs:
+            r.note("spark.json: valid against spark.schema.json")
+    branch = repo.git_ok("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    extras = [
+        p for p in repo.tracked
+        if Path(p).name in ("spark.json", "sparks.json") and p not in CANONICAL_SPARK_FILES and not p.startswith(INTENTIONALLY_TRACKED)
+    ]
+    if branch == DEV_BRANCH:
+        r.note(f"on {DEV_BRANCH}: {len(extras)} extra spark file(s) allowed here")
+    else:
+        for p in extras:
+            r.fail(f"{p} is tracked on {branch}; spark records beyond {', '.join(CANONICAL_SPARK_FILES)} belong on {DEV_BRANCH}")
+    refs = [ref for ref in (f"refs/heads/{DEV_BRANCH}", f"refs/remotes/origin/{DEV_BRANCH}")
+            if repo.git_ok("rev-parse", "-q", "--verify", f"{ref}^{{commit}}").returncode == 0]
+    if not refs:
+        r.skip(f"{DEV_BRANCH} not present locally or as origin/{DEV_BRANCH} (not yet present; git fetch origin to refresh)")
+        return r
+    for ref in refs:
+        short = ref.removeprefix("refs/heads/").removeprefix("refs/")
+        files = [p for p in repo._git("ls-tree", "-r", "-z", "--name-only", ref).split("\0") if Path(p).name == "sparks.json"]
+        if not files:
+            r.warn(f"{short} has no sparks.json")
+        for p in files:
+            res = repo.git_ok("show", f"{ref}:{p}")
+            errs = [f"cannot read: {res.stderr.strip()}"] if res.returncode else spark_errors(res.stdout, schema)
+            for e in errs:
+                r.fail(f"{short}:{p}: {e}")
+            if not errs:
+                r.note(f"{short}:{p}: valid against spark.schema.json")
+    return r
+
+
+def check_secrets(repo: Repo, deny_terms: list[str]) -> Result:
+    r = Result("secrets", "no secrets, private emails, absolute home paths, or denylisted text")
+    compiled = [(label, re.compile(rx)) for label, rx in SECRET_PATTERNS]
+    deny = [(t, re.compile(re.escape(t), re.I)) for t in deny_terms]
+    for p in repo.tracked:
+        text = repo.text(p)
+        if text is None:
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            for label, rx in compiled:
+                if rx.search(line):
+                    r.fail(f"{p}:{n}: possible {label}")
+            for m in EMAIL_RE.finditer(line):
+                if not any(a.search(m.group(0)) for a in EMAIL_ALLOWED):
+                    r.fail(f"{p}:{n}: email address {mask(m.group(0))}")
+            for m in HOME_PATH_RE.finditer(line):
+                if m.group(0) not in HOME_PATH_PLACEHOLDERS:
+                    r.fail(f"{p}:{n}: absolute home path {m.group(0)}")
+            for term, rx in deny:
+                if rx.search(line):
+                    r.fail(f"{p}:{n}: denylisted term #{deny_terms.index(term) + 1}")
+    r.note(f"scanned tracked text files; {len(deny_terms)} denylist term(s) loaded")
+    return r
+
+
+def mask(email: str) -> str:
+    local, _, domain = email.partition("@")
+    return f"{local[:1]}***@{domain}"
+
+
+def check_links(repo: Repo) -> Result:
+    r = Result("links", "relative links in markdown resolve")
+    count = 0
+    anchor_cache: dict[str, set[str]] = {}
+    vendored = vendored_paths(repo)
+    for p in (x for x in repo.tracked if x.endswith(".md")):
+        text = repo.text(p)
+        if text is None:
+            continue
+        # Vendored files are copied unchanged, so a broken link there is reported but cannot be fixed in place.
+        broken = r.warn if is_vendored(p, vendored) else r.fail
+        tag = " (vendored, copied unchanged)" if is_vendored(p, vendored) else ""
+        base = (repo.root / p).parent
+        for n, line in strip_code(text):
+            targets = MD_LINK_RE.findall(line) + HTML_LINK_RE.findall(line)
+            m = MD_REF_RE.match(line)
+            if m:
+                targets.append(m.group(1))
+            for t in targets:
+                if re.match(r"^[a-z][a-z0-9+.-]*:", t, re.I) or t.startswith("//"):
+                    continue
+                count += 1
+                target, _, frag = t.partition("#")
+                if target:
+                    dest = (repo.root / target.lstrip("/")) if target.startswith("/") else (base / target)
+                    dest = Path(os.path.normpath(dest))
+                    if not dest.exists():
+                        broken(f"{p}:{n}: {t} -> {dest.relative_to(repo.root) if repo.root in dest.parents else dest} does not exist{tag}")
+                        continue
+                    rel = dest.relative_to(repo.root).as_posix() if repo.root in dest.parents else None
+                    if rel and dest.is_file() and rel not in repo.tracked:
+                        broken(f"{p}:{n}: {t} points at untracked {rel}{tag}")
+                        continue
+                else:
+                    dest = repo.root / p
+                if frag and dest.suffix == ".md" and dest.is_file():
+                    key = str(dest)
+                    if key not in anchor_cache:
+                        anchor_cache[key] = anchors(dest.read_text(encoding="utf-8", errors="replace"))
+                    if frag.lower() not in anchor_cache[key]:
+                        r.warn(f"{p}:{n}: anchor #{frag} not found in {dest.relative_to(repo.root)}")
+    r.note(f"{count} relative link(s) checked")
+    return r
+
+
+def check_format(repo: Repo) -> Result:
+    r = Result("format", "trailing whitespace, final newline, line endings, valid JSON, executable scripts")
+    vendored = vendored_paths(repo)
+    issues = 0
+    for p in repo.tracked:
+        if Path(p).suffix.lower() not in TEXT_EXTS:
+            continue
+        text = repo.text(p)
+        if text is None:
+            continue
+        report = r.warn if is_vendored(p, vendored) else r.fail
+        tag = " (vendored, copied unchanged)" if is_vendored(p, vendored) else ""
+        if text and not text.endswith("\n"):
+            report(f"{p}: no final newline{tag}")
+            issues += 1
+        if text.endswith("\n\n"):
+            report(f"{p}: extra blank line(s) at end of file{tag}")
+            issues += 1
+        if "\r\n" in text:
+            report(f"{p}: CRLF line endings{tag}")
+            issues += 1
+        trailing = [str(n) for n, line in enumerate(text.split("\n"), 1) if line != line.rstrip(" \t")]
+        if trailing:
+            shown = ", ".join(trailing[:8]) + (f" (+{len(trailing) - 8} more)" if len(trailing) > 8 else "")
+            report(f"{p}: trailing whitespace on line(s) {shown}{tag}")
+            issues += 1
+        if p.endswith(".json"):
+            try:
+                json.loads(text)
+            except json.JSONDecodeError as exc:
+                r.fail(f"{p}: invalid JSON: {exc}")
+                issues += 1
+        if text.startswith("#!") and repo.modes.get(p) != "100755":
+            r.fail(f"{p}: has a shebang but is not executable in git (mode {repo.modes.get(p)})")
+            issues += 1
+    r.note(f"{issues} formatting issue(s); vendored prefixes: {', '.join(vendored) or 'none'}")
+    return r
+
+
+CHECKS = {
+    "docs": check_docs,
+    "notices": check_notices,
+    "manifest": check_manifest,
+    "tracked": check_tracked,
+    "gitignore": check_gitignore,
+    "sparks-files": check_sparks_files,
+    "secrets": None,  # needs the denylist
+    "links": check_links,
+    "format": check_format,
+}
+
+
+def load_denylist(path: str | None) -> list[str]:
+    path = path or os.environ.get("SPARKS_HYGIENE_DENYLIST")
+    if not path:
+        return []
+    lines = Path(path).expanduser().read_text(encoding="utf-8").splitlines()
+    return [ln.strip() for ln in lines if ln.strip() and not ln.lstrip().startswith("#")]
+
+
+def find_repo(arg: str | None) -> Path:
+    root = Path(arg).resolve() if arg else DEFAULT_REPO
+    res = subprocess.run(["git", "-C", str(root), "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    if res.returncode != 0:
+        sys.exit(f"error: {root} is not a git checkout")
+    return Path(res.stdout.strip())
+
+
+def cmd_doctor(args) -> int:
+    ok = True
+
+    def line(good: bool, msg: str) -> None:
+        nonlocal ok
+        ok &= good
+        print(f"{'ok  ' if good else 'FAIL'} {msg}")
+
+    line(sys.version_info >= (3, 9), f"python {sys.version.split()[0]} (need >= 3.9)")
+    root = find_repo(args.repo)
+    line(True, f"repo {root}")
+    head = subprocess.run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
+    line(bool(head), f"HEAD {head or 'unknown'}")
+    url = subprocess.run(["git", "-C", str(root), "remote", "get-url", "origin"], capture_output=True, text=True).stdout.strip()
+    line("sparks" in url, f"origin {url or 'none'} (expect gdsrvnt/sparks)")
+    line((root / ".cursor-plugin/plugin.json").is_file(), "manifest .cursor-plugin/plugin.json present")
+    dirty = subprocess.run(["git", "-C", str(root), "status", "--porcelain"], capture_output=True, text=True).stdout.strip()
+    print(f"note working tree {'dirty: checks read working-tree content, not HEAD' if dirty else 'clean'}")
+    try:
+        import jsonschema  # type: ignore  # noqa: F401
+
+        print("note jsonschema available: spark records use full schema validation")
+    except ImportError:
+        print("note jsonschema not installed: spark records use the built-in rules from spark.schema.json")
+    print(f"doctor: {'OK' if ok else 'FAIL'}")
+    return 0 if ok else 1
+
+
+def cmd_run(args) -> int:
+    root = find_repo(args.repo)
+    repo = Repo(root)
+    only = args.only.split(",") if args.only else list(CHECKS)
+    unknown = [c for c in only if c not in CHECKS]
+    if unknown:
+        sys.exit(f"error: unknown check(s): {', '.join(unknown)}; see --list")
+    deny = load_denylist(args.deny_file)
+    results = []
+    for name in only:
+        results.append(check_secrets(repo, deny) if name == "secrets" else CHECKS[name](repo))
+    head = repo._git("rev-parse", "--short", "HEAD").strip()
+    out = []
+    out.append(f"verify-sparks-hygiene  repo={root.name}  HEAD={head}  {dt.datetime.now(dt.timezone.utc):%Y-%m-%dT%H:%M:%SZ}")
+    for res in results:
+        out.append(f"{res.status:4} {res.check:12} {res.title}")
+        out.extend(f"       {ln}" for ln in res.lines)
+    counts = {s: sum(1 for x in results if x.status == s) for s in ("PASS", "FAIL", "WARN", "SKIP")}
+    verdict = "FAIL" if counts["FAIL"] else "PASS"
+    out.append(f"summary: {counts['PASS']} pass, {counts['FAIL']} fail, {counts['WARN']} warn, {counts['SKIP']} skip -> {verdict}")
+    report = "\n".join(out) + "\n"
+    sys.stdout.write(report)
+    evidence = Path(args.out) if args.out else Path(
+        os.environ.get("VERIFY_SPARKS_HYGIENE_EVIDENCE", Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "verify-sparks-hygiene")
+    ) / f"{dt.datetime.now():%Y%m%d-%H%M%S}-{head}"
+    if root.resolve() in evidence.resolve().parents:
+        sys.exit("error: evidence directory must be outside the checkout")
+    evidence.mkdir(parents=True, exist_ok=True)
+    (evidence / "report.txt").write_text(report, encoding="utf-8")
+    (evidence / "report.json").write_text(
+        json.dumps({"head": head, "verdict": verdict, "checks": [vars(x) for x in results]}, indent=2) + "\n", encoding="utf-8"
+    )
+    print(f"evidence: {evidence}")
+    return 1 if counts["FAIL"] else 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="check-sparks-hygiene", description=__doc__.split("\n\n")[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    d = sub.add_parser("doctor", help="read-only environment check; last line 'doctor: OK' or 'doctor: FAIL'")
+    d.add_argument("--repo")
+    run = sub.add_parser("run", help="run checks, print the report, save evidence")
+    run.add_argument("--repo", help="checkout to check (default: the one containing this skill)")
+    run.add_argument("--only", help="comma-separated check ids")
+    run.add_argument("--out", help="evidence directory (default: $VERIFY_SPARKS_HYGIENE_EVIDENCE or ~/.local/state/verify-sparks-hygiene/<stamp>)")
+    run.add_argument("--deny-file", help="file of private terms, one per line, kept outside the repo (or $SPARKS_HYGIENE_DENYLIST)")
+    sub.add_parser("list", help="list check ids")
+    args = ap.parse_args()
+    if args.cmd == "list":
+        for name in CHECKS:
+            print(name)
+        return 0
+    return cmd_doctor(args) if args.cmd == "doctor" else cmd_run(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,18 @@
+---
+description: When work is blocked on the user, ask one multiple-choice question that clears the blocker, with a free-text field and a stop-and-deliberate option that records the outcome as a spark.
+alwaysApply: true
+---
+
+# Blocker clearing
+
+When work cannot continue without the user, do not ask an open-ended question. Before asking, finish all work that does not depend on the answer. Then present one multiple-choice question. If there are several blockers, ask about the one that blocks the most work first.
+
+The question has:
+
+1. **Clearing options.** Two or more concrete options that each, if chosen, are enough to unblock the work on their own. State what you will do next under each option. Put the option you recommend first and say why in one line.
+2. **A free-text field.** Let the user add detail to any option, or describe an answer the options miss. A question tool's built-in free-text entry counts as this field.
+3. **Stop and deliberate.** Always the last option, with that exact label. Choosing it starts a `sparks-discuss` session with the blocker as its aim: open the plugin's `skills/sparks-discuss/SKILL.md` and follow it in full, including its add-or-replace protocol, so the outcome is recorded as a spark in the user's own words in `sparks.json`, a list of sparks. If you cannot open that file, ask the user to run `/sparks-discuss`. Resume the blocked work only after the user ends the session, working from the sparks it wrote. If none of them settles the blocker, ask the blocker question again.
+
+Use the harness's structured question tool when one exists. If it caps the number of options, drop clearing options down to two, never "Stop and deliberate". Without such a tool, write the question as a numbered list the user can answer by number.
+
+This rule does not apply while a skill that sets its own question format is running, such as `sparks-discuss`, `sparks-domain`, `spark-voice`, or `study`. That skill's rules win.
