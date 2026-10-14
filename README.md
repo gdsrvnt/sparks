@@ -243,19 +243,15 @@ Credits for the people who shaped this plugin. This is a hall of fame, not a foo
 - [Dex (@dexhorthy)](https://github.com/dexhorthy), author of `show-me`, for polish. HumanLayer's license is in `skills/LICENSE-humanlayer`.
 - [Yann Collet (@Cyan4973)](https://github.com/Cyan4973), who created [xxHash](https://github.com/Cyan4973/xxHash). `spark_hash.py` is a Python port of its XXH64 algorithm.
 
-### Pen Badge · intellectual contribution
+### Plaques
 
-| Lauren Tan | Matt Pocock |
-| --- | --- |
-| [![Lauren Tan — Pen Badge; public illustrated avatar](docs/assets/hall-of-fame/poteto.svg)](https://github.com/poteto) | [![Matt Pocock — Pen Badge; public GitHub profile image](docs/assets/hall-of-fame/mattpocock.svg)](https://github.com/mattpocock) |
-| Brian Madison | Yann Collet |
-| [![Brian Madison — Pen Badge; public GitHub profile image](docs/assets/hall-of-fame/bmadcode.svg)](https://github.com/bmadcode) | [![Yann Collet — Pen Badge; monogram only, photograph needed](docs/assets/hall-of-fame/Cyan4973.svg)](https://github.com/Cyan4973) |
+Pen Badge is an intellectual contribution. Onyx Badge is polish. Each plaque is its own frame with a 240 by 240 avatar, so all five are the same size. The pictures are each person's public GitHub avatar, shown from GitHub and not stored in this repository. Lauren's avatar is illustrated. Yann's is an identicon, not a photograph. No face was invented. Real photos and photo-generated finishing remain open on [#85](https://github.com/gdsrvnt/sparks/issues/85). These are acknowledgements, not endorsements. This repository's MIT license does not cover the avatars.
 
-### Onyx Badge · polish
-
-[![Dex — Onyx Badge for show-me; public GitHub profile image](docs/assets/hall-of-fame/dexhorthy.svg)](https://github.com/dexhorthy)
-
-These original vector frames use sourced public GitHub profile images, not invented photographs. Lauren's avatar is illustrated; Yann's plaque has only a monogram. Real photos for those two and photo-generated finishing remain open on [#85](https://github.com/gdsrvnt/sparks/issues/85). No image-generation tool was available for this pass. [Image sources, rights and rebuild instructions](docs/assets/hall-of-fame/README.md) are recorded separately; code licenses do not grant photo rights.
+<table><tr><td width="240" align="center"><a href="https://github.com/poteto"><img src="https://github.com/poteto.png" width="240" height="240" alt="Lauren Tan, Pen Badge"></a><br><strong>PEN BADGE</strong><br><a href="https://github.com/poteto">Lauren Tan</a><br>@poteto<br>Playbooks &amp; pstack<br>illustrated avatar</td></tr></table>
+<table><tr><td width="240" align="center"><a href="https://github.com/mattpocock"><img src="https://github.com/mattpocock.png" width="240" height="240" alt="Matt Pocock, Pen Badge"></a><br><strong>PEN BADGE</strong><br><a href="https://github.com/mattpocock">Matt Pocock</a><br>@mattpocock<br>Human IS the loop<br>profile image</td></tr></table>
+<table><tr><td width="240" align="center"><a href="https://github.com/bmadcode"><img src="https://github.com/bmadcode.png" width="240" height="240" alt="Brian Madison, Pen Badge"></a><br><strong>PEN BADGE</strong><br><a href="https://github.com/bmadcode">Brian Madison</a><br>@bmadcode<br>BMad Method<br>profile image</td></tr></table>
+<table><tr><td width="240" align="center"><a href="https://github.com/Cyan4973"><img src="https://github.com/Cyan4973.png" width="240" height="240" alt="Yann Collet, Pen Badge"></a><br><strong>PEN BADGE</strong><br><a href="https://github.com/Cyan4973">Yann Collet</a><br>@Cyan4973<br>xxHash / XXH64<br>identicon</td></tr></table>
+<table><tr><td width="240" align="center"><a href="https://github.com/dexhorthy"><img src="https://github.com/dexhorthy.png" width="240" height="240" alt="Dex, Onyx Badge"></a><br><strong>ONYX BADGE</strong><br><a href="https://github.com/dexhorthy">Dex</a><br>@dexhorthy<br>show-me<br>profile image</td></tr></table>
 
 ## License
 

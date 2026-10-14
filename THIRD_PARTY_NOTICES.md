@@ -40,10 +40,6 @@ It's licensed under the MIT License, Copyright (c) 2026 HumanLayer. The full lic
 
 All four are licensed under the MIT License, Copyright (c) 2026 Matt Pocock. The full license text is in [`skills/LICENSE-mattpocock`](skills/LICENSE-mattpocock).
 
-## Hall of fame profile images
-
-The original plaque frames in `docs/assets/hall-of-fame/` embed public GitHub profile images of Lauren Tan, Matt Pocock, Brian Madison and Dex. [Image sources and rights](docs/assets/hall-of-fame/README.md) and [the source manifest](docs/assets/hall-of-fame/sources.json) identify each profile, exact URL, retrieval date and original-image SHA-256. Lauren's image is an illustrated avatar, not a photograph. Yann Collet's frame has a text monogram and no portrait. The fetched images remain their owners' work: public availability and the code licenses below are not image redistribution grants. The repository MIT license covers the original frame artwork and renderer, not those images.
-
 ## BMad Method
 
 [`skills/LICENSE-bmad`](skills/LICENSE-bmad) is the MIT license from [bmad-code-org/BMAD-METHOD](https://github.com/bmad-code-org/BMAD-METHOD) at commit `8f0d50e1817fdd8fcf05a20c524218222d13cd8d`, Copyright (c) 2025 BMad Code, LLC. `CONTRIBUTORS.md` and `TRADEMARK.md` are not copied. No BMad skill or workflow is copied. The license is here so later spec work can credit BMad. Brian Madison ([@bmadcode](https://github.com/bmadcode)) created BMad Method.
