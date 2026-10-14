@@ -215,7 +215,7 @@ spark also helps to keep a project on the rails because it encompasses the five 
 
 ## Contributing
 
-Every issue and every open pull request needs exactly one priority label: `low`, `medium`, `high`, or `urgent`. Draft PRs are exempt. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Every issue and every open pull request needs exactly one priority label: `low`, `medium`, `high`, or `urgent`. Draft PRs are exempt. See [CONTRIBUTING.md](CONTRIBUTING.md). Pull request text: [AGENTS.md](AGENTS.md).
 
 ## Credits
 

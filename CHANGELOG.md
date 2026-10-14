@@ -33,6 +33,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Root `AGENTS.md`: pull request descriptions and work-reporting comments include an implementation overview, by file. `CONTRIBUTING.md` links it.
 - `docs/house/community-skills/subagent/`: Mario Zechner's `subagent` skill for Pi, copied unchanged from his [gist](https://gist.github.com/badlogic/d36e325248b68414e1c6528c6ed6b525) at revision `3d7d74a` as a community skill in the house library. A `NOTICE` next to it and `THIRD_PARTY_NOTICES.md` record the source. The gist states no license, and the `wait.ts` the skill runs is not in it. It sits under `docs/`, so the plugin does not load it ([#77](https://github.com/gdsrvnt/sparks/issues/77)).
 - `bin/sparks herdr query` reads the shared herdr snapshot and prints a short tab-separated table (`summary`, `workspaces`, `tabs`, `panes`, or `agents`). It does not call herdr, does not write the database, and does not print stored fetch JSON unless `--raw` is set. A pending WAL or rollback journal is a read failure, not a stale read.
 - Root `sparks.json` gains a type `k` spark whose answer is `docs/house/pi`, alongside its existing spark. The root file stays tracked; other `sparks.json` files stay ignored.
