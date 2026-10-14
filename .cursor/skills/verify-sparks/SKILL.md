@@ -1,6 +1,7 @@
 ---
 name: verify-sparks
 description: "Verify the gdsrvnt/sparks repo itself: source-wide semantic contradiction across README, docs, schema, rules, and first-party skills is the precedent, with a small programmatic helper for the XXH64 vectors and the sparks add path. Use before a PR, or when the pytest suite is being treated as the spec."
+disable-model-invocation: true
 ---
 
 # Verify sparks

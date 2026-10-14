@@ -1,6 +1,7 @@
 ---
 name: spark-voice
 description: Use this when initiating or when working with sparks over a phone or over a voice call.
+disable-model-invocation: true
 ---
 
 > [!IMPORTANT]

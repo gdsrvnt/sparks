@@ -1,6 +1,7 @@
 ---
 name: subagent
 description: Spawn a Pi subagent in tmux, observe its work, and wait for its durable assistant result in the JSONL session. Use for independent reviews or delegated repository work.
+disable-model-invocation: true
 ---
 
 # Subagent
