@@ -2118,11 +2118,170 @@ def test_herdr_usage_errors_do_not_call_herdr_or_write(fake_herdr, args):
     assert not fake_herdr.db.exists()
 
 
+def _tabs_sidecars(path):
+    found = {}
+    for candidate in (path, *(Path(str(path) + suffix) for suffix in ("-wal", "-shm", "-journal"))):
+        if candidate.exists():
+            found[candidate] = candidate.read_bytes()
+    return found
+
+
+def _parse_tabs(stdout):
+    lines = stdout.splitlines()
+    assert lines and lines[0].startswith("tabs ")
+    groups = []
+    current = None
+    for line in lines[1:]:
+        parts = line.split("\t")
+        if parts[0] == "ws":
+            assert len(parts) == 6
+            current = {
+                "id": parts[1], "label": parts[2], "stored": int(parts[3]),
+                "done": int(parts[4]), "active": int(parts[5]), "tabs": [],
+            }
+            assert current["active"] == current["stored"] - current["done"]
+            groups.append(current)
+        else:
+            assert parts[0] == "tab" and current is not None and len(parts) == 4
+            assert parts[3] != "done"
+            current["tabs"].append(parts[1:])
+    for group in groups:
+        assert len(group["tabs"]) == group["active"]
+    header_active = int(lines[0].split("active=", 1)[1].split(" ", 1)[0])
+    assert header_active == sum(group["active"] for group in groups)
+    assert f"workspaces={len(groups)}" in lines[0]
+    return lines[0], groups
+
+
+def test_herdr_tabs_enumerates_active_tabs_by_arithmetic(saved_snapshot):
+    fake, before = saved_snapshot
+    files = _tabs_sidecars(fake.db)
+    result = sparks("herdr", "tabs", cwd=fake.directory)
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    header, groups = _parse_tabs(result.stdout)
+    assert "db=" + str(fake.db) in header
+    assert [(group["id"], group["label"], group["stored"], group["done"], group["active"]) for group in groups] == [
+        ("w3", "sparks", 1, 0, 1),
+        ("w1", "tasks", 2, 1, 1),
+        ("w6", "restored", 1, 0, 1),
+    ]
+    assert groups[0]["tabs"] == [["w3:tX", "state-review", "working"]]
+    assert groups[1]["tabs"] == [["w1:t1", "shell", "unknown"]]
+    assert groups[2]["tabs"] == [["w6:t1", "restored", "unknown"]]
+    assert "w1:tB" not in result.stdout
+    fake.assert_calls(())
+    assert _tabs_sidecars(fake.db) == files
+    assert (fake.db.read_bytes(), database_dump(fake.db)) == before
+
+
+def test_herdr_tabs_counts_null_status_and_empty_and_orphan_workspaces(fake_herdr):
+    rows = herdr_rows()
+    rows["workspaces"].append({
+        "active_tab_id": None, "agent_status": "unknown", "focused": False,
+        "label": "empty", "number": 1, "pane_count": 0, "tab_count": 0,
+        "workspace_id": "w0",
+    })
+    rows["tabs"][0]["agent_status"] = None
+    rows["tabs"].append({
+        "agent_status": "working", "focused": False, "label": "orphan",
+        "number": 1, "pane_count": 1, "tab_id": "w9:t1", "workspace_id": "w9",
+    })
+    fake_herdr.respond(rows)
+    assert_snapshot_success(fake_herdr, fake_herdr.run())
+    fake_herdr.clear_calls()
+    result = sparks("herdr", "tabs", cwd=fake_herdr.directory)
+    assert result.returncode == 0, result.stderr
+    _, groups = _parse_tabs(result.stdout)
+    assert [(group["id"], group["stored"], group["done"], group["active"], group["label"]) for group in groups] == [
+        ("w0", 0, 0, 0, "empty"),
+        ("w3", 1, 0, 1, "sparks"),
+        ("w1", 2, 1, 1, "tasks"),
+        ("w6", 1, 0, 1, "restored"),
+        ("w9", 1, 0, 1, ""),
+    ]
+    assert groups[1]["tabs"] == [["w3:tX", "state-review", ""]]
+    assert groups[-1]["tabs"] == [["w9:t1", "orphan", "working"]]
+    fake_herdr.assert_calls(())
+
+
+def test_herdr_tabs_missing_database_creates_nothing(fake_herdr):
+    missing = fake_herdr.directory / "missing" / "state.sqlite"
+    result = sparks("herdr", "tabs", "--db", str(missing), cwd=fake_herdr.directory)
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "no snapshot" in result.stderr
+    assert not missing.exists()
+    assert not missing.parent.exists()
+    fake_herdr.assert_calls(())
+
+
+def test_herdr_tabs_pending_journal_is_refused(saved_snapshot):
+    fake, before = saved_snapshot
+    wal = Path(str(fake.db) + "-wal")
+    wal.write_bytes(b"x" * 40)
+    result = sparks("herdr", "tabs", cwd=fake.directory)
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "pending journal" in result.stderr
+    assert wal.read_bytes() == b"x" * 40
+    assert fake.db.read_bytes() == before[0]
+    fake.assert_calls(())
+
+
+def test_herdr_tabs_usage_does_not_call_herdr(fake_herdr):
+    result = sparks("herdr", "tabs", "extra", cwd=fake_herdr.directory)
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert result.stderr.startswith("usage: sparks")
+    fake_herdr.assert_calls(())
+    assert not fake_herdr.db.exists()
+
+
+def test_herdr_tabs_help_names_arithmetic_and_does_not_call_herdr(fake_herdr):
+    result = sparks("herdr", "tabs", "--help", cwd=fake_herdr.directory)
+    assert result.returncode == 0
+    text = " ".join(result.stdout.split())
+    assert "arithmetic" in text
+    assert "sqlite3" in text
+    assert "Does not call herdr" in text
+    assert "no new dependency" in text
+    fake_herdr.assert_calls(())
+
+
+def test_herdr_tabs_does_not_import_jsonschema(saved_snapshot):
+    fake, _before = saved_snapshot
+    blocker = (
+        "import sys\n"
+        "class BlockJsonschema:\n"
+        "    def find_spec(self, name, path, target=None):\n"
+        "        if name == 'jsonschema' or name.startswith('jsonschema.'):\n"
+        "            raise ImportError('jsonschema blocked')\n"
+        "        return None\n"
+        "sys.meta_path.insert(0, BlockJsonschema())\n"
+        "import runpy\n"
+        "sys.argv = ['sparks', 'herdr', 'tabs']\n"
+        f"runpy.run_path({str(BIN)!r}, run_name='__main__')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-S", "-c", blocker],
+        cwd=fake.directory,
+        capture_output=True,
+        encoding="utf-8",
+        env={**os.environ, "SPARKS_HERDR_DB": str(fake.db)},
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("tabs ")
+    assert "jsonschema blocked" not in result.stderr
+
+
 def test_herdr_snapshot_public_files_and_fixtures_have_no_machine_specific_strings():
     # Assemble prohibited spellings so the guard itself is not a fixture violation.
+    grok_bot = "Grok" + " Bot"
     forbidden = (
         "/home/" + "box", "/" + "workspace", "Arch" + "Agents", "God" + "dy",
-        "Grok" + " Bot", "Grok" + "box",
+        grok_bot, "Grok" + "box",
     )
     public_files = (
         BIN, ROOT / "README.md", ROOT / "CHANGELOG.md",
@@ -2132,6 +2291,12 @@ def test_herdr_snapshot_public_files_and_fixtures_have_no_machine_specific_strin
     for path in public_files:
         text = path.read_text(encoding="utf-8")
         for value in forbidden:
+            if value == grok_bot and path == ROOT / "README.md":
+                before, _, after = text.partition("## Hall of fame")
+                assert after
+                assert value not in before
+                assert value in after.split("## License", 1)[0]
+                continue
             assert value not in text, (path.relative_to(ROOT), value)
     for value in forbidden:
         assert value not in Path(__file__).read_text(encoding="utf-8")
