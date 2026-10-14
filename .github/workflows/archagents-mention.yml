@@ -1,6 +1,7 @@
 name: archagents-mention
 
-# Forwards GitHub events to the Grok Bot webhook when GoddyB mentions @ArchAgents.
+# Forwards GitHub events to the Grok Bot webhook when GoddyB mentions @ArchAgents,
+# or requests a review from ArchAgents on a pull request (no text to match).
 # commit_comment is not a supported Actions trigger, so commit comments are not covered.
 # Uses pull_request_target so secrets are available; PR code is never checked out.
 
@@ -10,7 +11,7 @@ on:
   issue_comment:
     types: [created, edited]
   pull_request_target:
-    types: [opened, edited]
+    types: [opened, edited, review_requested]
   pull_request_review:
     types: [submitted]
   pull_request_review_comment:
@@ -30,7 +31,8 @@ jobs:
     if: >-
       github.actor == 'GoddyB' && (
         (github.event_name == 'issues' && (contains(github.event.issue.body, '@ArchAgents') || contains(github.event.issue.title, '@ArchAgents'))) ||
-        (github.event_name == 'pull_request_target' && (contains(github.event.pull_request.body, '@ArchAgents') || contains(github.event.pull_request.title, '@ArchAgents'))) ||
+        (github.event_name == 'pull_request_target' && github.event.action != 'review_requested' && (contains(github.event.pull_request.body, '@ArchAgents') || contains(github.event.pull_request.title, '@ArchAgents'))) ||
+        (github.event_name == 'pull_request_target' && github.event.action == 'review_requested' && github.event.requested_reviewer.login == 'ArchAgents') ||
         (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@ArchAgents')) ||
         (github.event_name == 'discussion' && (contains(github.event.discussion.body, '@ArchAgents') || contains(github.event.discussion.title, '@ArchAgents'))) ||
         ((github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment' || github.event_name == 'discussion_comment') && contains(github.event.comment.body, '@ArchAgents'))
