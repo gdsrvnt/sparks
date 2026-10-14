@@ -208,6 +208,9 @@ def index_paths(root: Path) -> tuple[list[str], list[str], list[str]]:
     implementation = [
         "sparks.schema.json",
         "defaults/agent.toml",
+        "defaults/agents.toml",
+        "defaults/model-types.toml",
+        "pi/extensions/sparks-api-error-blocked.ts",
         "sparks.json",
         "spark_id.py",
         "spark_hash.py",
@@ -584,7 +587,8 @@ def check_herdr(root: Path, roots: list[Path], evidence: Path) -> int:
 
 
 def check_agent_spawn(root: Path, roots: list[Path], evidence: Path) -> int:
-    """Dry runs only: a persona built from pi's own model list, an unknown type, a smuggled flag."""
+    """Dry runs only: a persona built from pi's own model list, an unknown type, smuggled flags,
+    and the shipped reviewer persona."""
     target = evidence / "agent-spawn.txt"
     if target.is_symlink():
         raise SystemExit(f"check-verify-sparks: refusing to write through symlink {target}")
@@ -607,7 +611,7 @@ def check_agent_spawn(root: Path, roots: list[Path], evidence: Path) -> int:
         provider, model = lines[1][:2]
         (scratch / ".sparks").mkdir()
         (scratch / ".sparks" / "agents.toml").write_text(
-            f'[probe]\nrole = "verify-sparks probe"\nmodel = {json.dumps(model)}\n'
+            f'[probe]\nrole = "verify-sparks probe"\nmodel_type = "fast"\nmodel = {json.dumps(model)}\n'
             f'provider = {json.dumps(provider)}\neffort = "none"\n',
             encoding="utf-8",
         )
@@ -618,6 +622,8 @@ def check_agent_spawn(root: Path, roots: list[Path], evidence: Path) -> int:
             "plan": run_cmd([*spawn, "probe", "--dry-run"], cwd=cwd, roots=roots),
             "unknown": run_cmd([*spawn, "nope", "--dry-run"], cwd=cwd, roots=roots),
             "smuggle": run_cmd([*spawn, "probe", "--dry-run", "--additional-flags", "--model x"], cwd=cwd, roots=roots),
+            "smuggle-tools": run_cmd([*spawn, "probe", "--dry-run", "--additional-flags", "--tools read"], cwd=cwd, roots=roots),
+            "default": run_cmd([*spawn, "reviewer", "--dry-run"], cwd=cwd, roots=roots),
         }
         extra = "".join(
             f"--- {name} ---\nargv={done.args}\nexit={done.returncode}\n{done.stdout}{done.stderr}"
@@ -630,11 +636,31 @@ def check_agent_spawn(root: Path, roots: list[Path], evidence: Path) -> int:
         except ValueError:
             plan = {}
         expected = ["pi", "--provider", provider, "--model", model, "--thinking", "off"]
-        if drives["plan"].returncode != 0 or plan.get("command") != expected:
+        extension = str(root / "pi" / "extensions" / "sparks-api-error-blocked.ts")
+        command = plan.get("command") or []
+        if drives["plan"].returncode != 0 or command[:7] != expected:
             problems.append(f"dry run did not plan {expected}")
+        elif command[7:10] != ["-e", extension, "--append-system-prompt"] or "sparks.json" not in command[10]:
+            problems.append("dry run did not load the api-error extension and the sparks prompt")
         elif Path(plan.get("config", "")).resolve() != (scratch / ".sparks" / "agents.toml").resolve():
             problems.append("dry run did not read the parent directory's .sparks/agents.toml")
-        for name, needle in (("unknown", "personas: probe"), ("smuggle", "--model is set by the persona")):
+        try:
+            default = json.loads(drives["default"].stdout)
+        except ValueError:
+            default = {}
+        reviewer_skill = str(root / "skills" / "spark-verification")
+        if drives["default"].returncode == 0:
+            words = default.get("command") or []
+            if (Path(default.get("config", "")).resolve() != (root / "defaults" / "agents.toml").resolve()
+                    or "--no-skills" not in words or reviewer_skill not in words
+                    or words[words.index("--exclude-tools") + 1:][:1] != ["edit,write"]):
+                problems.append("the shipped reviewer did not plan --exclude-tools edit,write and only spark-verification")
+        elif "no combo for model type powerful is available" not in drives["default"].stderr:
+            problems.append("the shipped reviewer was neither planned nor refused for want of a listed model")
+        for name, needle in (
+            ("unknown", "personas: probe"), ("smuggle", "--model is set by the persona"),
+            ("smuggle-tools", "--tools is set by the persona"),
+        ):
             done = drives[name]
             if (
                 done.returncode != 1 or done.stdout or not done.stderr.startswith("sparks: ")
@@ -645,7 +671,8 @@ def check_agent_spawn(root: Path, roots: list[Path], evidence: Path) -> int:
             print("FAIL agent-spawn: " + "; ".join(problems))
             return 1
         print(drives["plan"].stdout, end="")
-        print("PASS agent-spawn dry run from pi's own model list; unknown type and smuggled flag refused")
+        print("PASS agent-spawn dry run from pi's own model list; unknown type and smuggled flags refused; "
+              "shipped reviewer checked")
         return 0
     finally:
         if scratch.exists():

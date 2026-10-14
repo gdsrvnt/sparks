@@ -45,4 +45,4 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 - [Add](./add.md) covers `sparks add [--path]`: create, exact-question replace, and a refusal that does not write. There is no `entry add`.
 - [Id and hash](./id-and-hash.md) covers the published XXH64 vectors and every stored id in the root `sparks.json`.
 - [Herdr snapshot](./herdr-snapshot.md) covers an isolated `sparks herdr snapshot --db`.
-- [Agent spawn](./agent-spawn.md) covers `sparks agent spawn --dry-run`: a persona's pi command, an unknown type, and a smuggled flag. It never launches.
+- [Agent spawn](./agent-spawn.md) covers `sparks agent spawn --dry-run`: a persona's pi command, an unknown type, smuggled flags, and the shipped `reviewer` persona. It never launches.

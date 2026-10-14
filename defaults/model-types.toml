@@ -1,0 +1,89 @@
+# model-types.toml: the model types sparks agent spawn ships with.
+#
+# Every persona names a model type with its model_type key. A model type is a
+# bucket of pi provider, model, effort, and service tier combinations, tried
+# in order, plus the other types to fall back to when none of its own combos
+# starts. Add as many types as you want.
+#
+# A project overrides or extends this file with .sparks/model-types.toml,
+# found like .sparks/agents.toml: the current directory first, then each
+# parent up to the git top level (or the filesystem root outside a git
+# repository); it must be owned by you and not writable by group or others.
+# A type there with the same name as a type here replaces it whole; a new name
+# adds a type. Types cannot be removed, only replaced.
+#
+# Each type is one table, named by the type (a lowercase letter, then up to 31
+# of a-z, 0-9, -, _). Keys:
+#
+#   description  Optional. One line for people reading this file.
+#   fallback     Optional. Other type names to try, in order, after this
+#                type's own combos. Only their combos are used, not their own
+#                fallback lists, so a chain never loops.
+#   combos       Required. One or more [[<type>.combos]] tables, tried in
+#                order. Each has:
+#                  provider      Required. A provider pi --list-models prints.
+#                  model         Required. A model id pi --list-models prints
+#                                for that provider; no :thinking suffix, no
+#                                speed word.
+#                  effort        Required. none (sent as off), minimal, low,
+#                                medium, high, xhigh, or max.
+#                  service_tier  Optional. Recorded in the plan and the
+#                                attempts, but not applied: pi has no service
+#                                tier flag or setting.
+#
+# The chain for a persona is: its own model, provider, and effort when it sets
+# model; then its type's combos; then each fallback type's combos; a combo
+# already in the chain is not repeated. A combo pi does not list is skipped.
+# A combo whose herdr agent start fails, or (with --prompt) whose first
+# request ends in a pi API error, has its tab closed and the next is tried.
+#
+# Every model id below was listed by pi --list-models, with thinking, for its
+# provider when this file was written. Run
+# `sparks agent spawn <persona> --dry-run` to see which are available to you.
+
+[powerful]
+description = "The strongest models, for specs and reviews"
+fallback = ["value", "fast"]
+
+[[powerful.combos]]
+provider = "anthropic"
+model = "claude-opus-5-5"
+effort = "high"
+
+[[powerful.combos]]
+provider = "openai-codex"
+model = "gpt-6.1-sol"
+effort = "high"
+
+[value]
+description = "Strong models at a lower cost, for implementation"
+fallback = ["powerful", "fast"]
+
+[[value.combos]]
+provider = "anthropic"
+model = "claude-sonnet-5-5"
+effort = "medium"
+
+[[value.combos]]
+provider = "xai"
+model = "grok-4.7"
+effort = "medium"
+
+[fast]
+description = "Quick models for small, well-scoped work"
+fallback = ["value", "powerful"]
+
+[[fast.combos]]
+provider = "anthropic"
+model = "claude-haiku-5-5"
+effort = "low"
+
+[[fast.combos]]
+provider = "openai-codex"
+model = "gpt-5.3-codex-spark"
+effort = "low"
+
+[[fast.combos]]
+provider = "xai"
+model = "grok-4.3"
+effort = "low"
