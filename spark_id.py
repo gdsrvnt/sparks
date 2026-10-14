@@ -5,9 +5,9 @@
 
 """``_preimage`` is the normative serializer. The derived id is XXH64 (seed 0)
 of the UTF-8 of that JSON object, as 16 lowercase hex characters, computed by
-the bundled, dependency-free ``spark_hash.py``. A record may store that id
-under the optional ``id`` key; ``sparks entry add`` writes it on insertion.
-A stored id is kept as the record's reference and is not recomputed, so a
+the bundled, dependency-free ``spark_hash.py``. A spark may store that id
+under the optional ``id`` key; ``sparks add`` writes it on insertion.
+A stored id is kept as the spark's reference and is not recomputed, so a
 file without ids stays valid and a stored id survives later hand edits.
 Strings are not trimmed and not Unicode-normalized.
 """
@@ -49,7 +49,7 @@ def _preimage(question: str, answer: str, spark_type: str) -> bytes:
 
 @dataclass(frozen=True)
 class Spark:
-    """One immutable SPARK record. Its id is the stored id, else derived from its strings."""
+    """One immutable spark. Its id is the stored id, else derived from its strings."""
 
     question: str
     answer: str
@@ -75,7 +75,7 @@ class Spark:
 
 
 def load(path: Path) -> tuple[Spark, ...]:
-    """Read one spark.json file into Sparks, in array order.
+    """Read a list of sparks from one JSON file, in array order.
 
     Does not search parent or child directories and does not write.
     An empty array returns (). JSON errors, OS errors, shape errors,
@@ -105,7 +105,7 @@ def load(path: Path) -> tuple[Spark, ...]:
             {"type", "question", "answer"} <= set(item) <= {"type", "question", "answer", "id"}
         ):
             raise SparkFileError(
-                "each record must be an object with keys type, question, and answer, "
+                "each spark must be an object with keys type, question, and answer, "
                 "and optionally id"
             )
         wire_type = item["type"]
@@ -131,7 +131,7 @@ def load(path: Path) -> tuple[Spark, ...]:
 
 
 def connect(*groups: Iterable[Spark]) -> tuple[Spark, ...]:
-    """Set-union by id of Sparks that are already loaded.
+    """Set-union by id of sparks that are already loaded.
 
     Walks groups in argument order, then each Spark in iteration order.
     The first Spark for an id is kept. A later Spark with that id and the
@@ -168,7 +168,7 @@ def main(argv: list[str]) -> int:
     SparkFileError write ``spark_id: <path>: <message>`` and return 1.
     """
     if len(argv) != 2:
-        sys.stderr.write("spark_id: usage: uv run spark_id.py <spark.json>\n")
+        sys.stderr.write("spark_id: usage: uv run spark_id.py <sparks.json>\n")
         return 1
     path = argv[1]
     try:

@@ -1,8 +1,8 @@
 {
   "name": "sparks",
-  "displayName": "Sparks",
+  "displayName": "sparks",
   "version": "0.1.0",
-  "description": "Sparks: gather, maintain, and structure project context as Q&A pairs, with a study mode and thinking skills.",
+  "description": "sparks: gather, maintain, and structure project context as Q&A pairs, with a study mode and thinking skills.",
   "author": {
     "name": "gdsrvnt"
   },

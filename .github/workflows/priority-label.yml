@@ -2,7 +2,8 @@ name: priority-label
 
 # Every issue and every open (non-draft) PR must carry exactly one priority
 # label: low, medium, high, or urgent. GitHub cannot block creation, so this
-# check fails (and, for issues, comments once) until one is applied.
+# check fails (and, for issues, comments once) until one is applied. A failure
+# names the labels it found and how to fix them, in the annotation and the job summary.
 # pull_request_target is used so it also works on fork PRs; no code is checked out.
 
 on:
@@ -25,35 +26,73 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
+          SERVER: ${{ github.server_url }}
           EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_LABELS: ${{ toJSON(github.event.issue.labels.*.name) }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_DRAFT: ${{ github.event.pull_request.draft }}
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           set -euo pipefail
           if [ "$EVENT" = "pull_request_target" ]; then
+            kind="PR"; number="$PR_NUMBER"; labels="$PR_LABELS"
             if [ "$PR_DRAFT" = "true" ]; then
-              echo "Draft PR: priority label optional."; exit 0
+              echo "Draft PR #$number: priority label optional."; exit 0
             fi
-            labels="$PR_LABELS"
           else
-            labels="$ISSUE_LABELS"
+            kind="Issue"; number="$ISSUE_NUMBER"; labels="$ISSUE_LABELS"
           fi
-          count=$(jq '[.[] | select(. == "low" or . == "medium" or . == "high" or . == "urgent")] | length' <<<"$labels")
+          # The event payload is a snapshot from when the event fired, and a re-run
+          # replays it. Read the current labels so re-running after a fix passes.
+          if current=$(gh api "repos/$REPO/issues/$number" --jq '[.labels[].name]'); then
+            labels="$current"
+          else
+            echo "::warning title=Using event labels::Could not read the current labels of $kind #$number; checking the labels it had at $EVENT.$ACTION."
+          fi
+          priority=$(jq -c '[.[] | select(IN("low", "medium", "high", "urgent"))]' <<<"$labels")
+          count=$(jq length <<<"$priority")
+          names=$(jq -r 'join(", ")' <<<"$priority")
+          all=$(jq -r 'if length == 0 then "none" else join(", ") end' <<<"$labels")
           if [ "$count" -eq 1 ]; then
-            echo "OK: exactly one priority label."; exit 0
+            echo "OK: $kind #$number has exactly one priority label: $names."; exit 0
           fi
-          msg="Needs exactly one priority label (low, medium, high, or urgent); found $count."
-          echo "::error::$msg"
+          if [ "$count" -eq 0 ]; then
+            title="Missing priority label"
+            msg="$kind #$number has no priority label. Add exactly one of: low, medium, high, urgent."
+            fix="gh api -X POST repos/$REPO/issues/$number/labels -f 'labels[]=medium'"
+          else
+            title="Too many priority labels"
+            msg="$kind #$number has $count priority labels ($names). Remove all but one."
+            fix="gh api -X DELETE repos/$REPO/issues/$number/labels/$(jq -r '.[0]' <<<"$priority")"
+          fi
+          echo "::error title=$title::$msg Labels now: $all."
+          {
+            echo "## $title"
+            echo
+            echo "$msg"
+            echo
+            echo "- Labels now: $all"
+            echo "- Checked on: \`$EVENT.$ACTION\`"
+            echo "- Rule: every issue and every non-draft PR needs exactly one of \`low\`, \`medium\`, \`high\`, \`urgent\` ([CONTRIBUTING.md]($SERVER/$REPO/blob/HEAD/CONTRIBUTING.md#priority-labels))."
+            echo
+            echo "Fix it from the Labels menu on [$kind #$number]($SERVER/$REPO/issues/$number), or with, for example:"
+            echo
+            echo '```sh'
+            echo "$fix"
+            echo '```'
+            echo
+            echo "A label change re-runs this check. A manual re-run also reads the current labels."
+          } >>"$GITHUB_STEP_SUMMARY"
           if [ "$EVENT" = "issues" ]; then
             marker='<!-- priority-label-check -->'
-            existing=$(gh api "repos/$REPO/issues/$ISSUE_NUMBER/comments" --paginate \
-              --jq "[.[] | select(.body | contains(\"$marker\"))] | length" | paste -sd+ | bc)
-            if [ "${existing:-0}" -eq 0 ]; then
-              gh issue comment "$ISSUE_NUMBER" -R "$REPO" \
+            existing=$(gh api "repos/$REPO/issues/$number/comments" --paginate \
+              --jq "[.[] | select(.body | contains(\"$marker\"))] | length" | jq -s 'add // 0')
+            if [ "$existing" -eq 0 ]; then
+              gh issue comment "$number" -R "$REPO" \
                 --body "$marker
-          $msg Please add one. See CONTRIBUTING.md."
+          $msg See CONTRIBUTING.md."
             fi
           fi
           exit 1
