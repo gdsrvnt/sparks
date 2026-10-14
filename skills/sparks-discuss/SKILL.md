@@ -45,6 +45,8 @@ They're ordered topologically: each one depends on what the ones before it produ
 
 The natural progression is 1 → 2 → (3 ↔ 4) → 5 → 6 → 7 → 8 → 9. Clerk sits outside the chain. You may go back to any persona whose prerequisite still holds. Don't jump forward past an unmet prerequisite.
 
+Why this order, why the examiner follows the listener, and why the diagnostician waits for the same gap twice: see the Order section of [study's SKILL.md](../study/SKILL.md) and each playbook's Rationale.
+
 ### Picking the persona
 
 First read the session's mode from what the user said.
