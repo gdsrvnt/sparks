@@ -139,9 +139,9 @@ def test_creates_a_missing_file_with_the_spark(tmp_path):
 def test_output_matches_the_repo_example_byte_for_byte(tmp_path):
     example = ROOT / "sparks.json"
     path = tmp_path / "sparks.json"
-    (spark,) = json.loads(example.read_bytes())
-    del spark["id"]  # sparks assigns the id on add
-    assert add(path, spark).returncode == 0
+    for spark in json.loads(example.read_bytes()):
+        del spark["id"]  # sparks assigns the id on add
+        assert add(path, spark).returncode == 0
     # A Windows checkout may have turned the example's line endings into CRLF.
     assert path.read_bytes() == example.read_bytes().replace(b"\r\n", b"\n")
 
@@ -2175,8 +2175,8 @@ def test_duplicate_stored_ids_are_refused(tmp_path):
 
 
 def test_example_id_is_pinned():
-    (spark,) = json.loads((ROOT / "sparks.json").read_bytes())
-    assert spark["id"] == spark_id({k: spark[k] for k in ("type", "question", "answer")})
+    for spark in json.loads((ROOT / "sparks.json").read_bytes()):
+        assert spark["id"] == spark_id({k: spark[k] for k in ("type", "question", "answer")})
 
 
 @pytest.mark.parametrize("bad", [None, 1, "0123456789abcdef\n", "0" * 17])
