@@ -10,5 +10,23 @@
     "question": "What is the best place to find pi documentation when working on sparks functionality that interfaces with it through herdr?",
     "answer": "docs/house/pi",
     "id": "2944f552293027c2"
+  },
+  {
+    "type": "p",
+    "question": "When you say polish the skill, which skill do you mean, and what does it look like when someone uses it and it feels finished?",
+    "answer": "Well, I want the skill to primarily be a way to dispatch tasks. And so, pretty much with every task that the user dispatches, um, over to a Grok bot, the skill asks for questions pertaining to the dimensions that the Spark types, um, address. And then those answers are distilled into sparks, uh, dot JSON in the appropriate directory, and then the task is carried out with those sparks in mind, and agents actually refer to the sparks when doing their work to resolve ambiguity and to verify every task that ends with a review or any sort of post on the repository.",
+    "id": "83c4a15975dcfb70"
+  },
+  {
+    "type": "p",
+    "question": "You said the answers go into sparks.json in the appropriate directory. When a task comes in, how should the skill decide which directory a new spark belongs in?",
+    "answer": "It should go in the sparks.json of the, of the most relevant, or, yeah, it should go in the sparks.json of the most relevant directory or the closest directory to where the work is being done. But at the end of the day, it doesn't really matter because future releases will have a central CLI that kind of funnels all of the relevant context. But for now, agents can read any spark in any directory that they work in, and in fact, should refer to them even if programmatically with fuzzy searches.",
+    "id": "0f2b137cd91b1f09"
+  },
+  {
+    "type": "p",
+    "question": "You said the skill asks questions with pretty much every task. When should it ask nothing and just dispatch, and what's the cost you're trying to avoid when it does ask?",
+    "answer": "Well, that is up to the agent to whom the task is being given, provided that the agent is a Grok, of course, because further agents should not ask for further clarification since they are used as workers, essentially. But for any Grok bot, the further clarification is optional. And so when a task is given, if the sparks in their totality have enough information to create a strong verification skill to the users, um, or a strong verification skill for the user's request, then the verification skill should be created for that task.",
+    "id": "7f6b05438c7b8d48"
   }
 ]
