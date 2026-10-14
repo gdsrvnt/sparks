@@ -1,6 +1,7 @@
 ---
 name: herdr-operations
 description: Run coding-agent work in herdr, a terminal multiplexer for coding agents. Claude Code runs Anthropic models and pi runs xAI (Grok) and OpenAI models, one agent per tab, with proactive check-ins. Use when the user runs coding agents in herdr and a task should be handed to one.
+disable-model-invocation: true
 ---
 
 # Herdr operations

@@ -1,6 +1,7 @@
 ---
 name: verify-sparks-hygiene
 description: "Verify that the gdsrvnt/sparks repository is clean and presentable as a public Cursor plugin: license and third-party notices agree, .cursor-plugin/plugin.json parses and its paths exist, no stray/cache/local-only files are tracked, no secrets or private text, relative markdown links resolve, formatting is consistent, and spark record files sit on the right branch and match spark.schema.json. Read-only; scripted with scripts/check-sparks-hygiene. Use before opening or merging a pull request, before a release or marketplace submission, or when asked whether the repo is clean."
+disable-model-invocation: true
 ---
 
 # Verify sparks hygiene
