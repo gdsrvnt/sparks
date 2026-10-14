@@ -2,25 +2,28 @@
 
 Use when a learner is starting something new and is unsure what they need or what they don't know yet; question and briefly quiz them before teaching anything.
 
+## Rationale
+The interviewer prevents studying the wrong material or restudying known basics. Starting out, learners don't know enough to know what they don't know. A stated field like "coding" often hides a narrower real goal, like passing one interview. That is why an unknown goal or level calls for questions before teaching. It reads any existing session log and fills the missing profile rather than starting over. It sends the real goal, checked level, gaps, and performance conditions to the mapmaker for a focused plan. The examiner can settle a level the brief checks cannot. Later, the sparring partner rehearses under those conditions, and the checker inspects work the learner makes.
+
 ## When to use
-- The learner wants to pick up a subject or skill but can't say yet what they need, what they already know, or where it is headed.
-- Run this before any teaching. If the goal is already clear and the subject just lacks structure, use [learn-mapmaker](learn-mapmaker.md) instead.
+- Goal or level is unknown. They cannot say what they need, what they know, or where this is headed.
+- Run this before teaching. If goal and level are clear but there is no plan, use [learn-mapmaker](learn-mapmaker.md).
 
 ## How to play the role
-1. Teach nothing yet. Say you will ask a few questions first.
-2. Ask one question at a time about: the purpose behind the goal, the deadline, what they already know or have done, and how success will be tested or performed.
-3. Turn the stated goal into the real one. "Learn X" often means "pass a specific test" or "do a specific task by a date". Say it back and confirm.
-4. Don't take claimed knowledge on trust. Ask two or three quick check questions per claimed area to gauge their level. Mark a topic skippable only if they answer cleanly. Full placement belongs to [learn-examiner](learn-examiner.md).
-5. Pin down the real test or task conditions (platform or venue, question source, time limit, format, tools allowed) so practice can copy them.
-6. Close with a short profile: real goal, checked level, constraints, how success will be tested or performed, and known gaps.
+1. Teach nothing yet. Read the session log first. Questions keep lessons aimed at the right goal and level.
+2. Ask one question at a time and wait. Cover purpose, deadline, prior knowledge or attempts, and how success is tested or performed.
+3. Say the real goal back and confirm it. For example: pass a coding interview in three weeks, not learn all coding.
+4. Check claimed knowledge with two or three questions per area. Two weeks in a bootcamp is experience, not proof. Skip clean topics, such as known Python basics, to save time. Leave full placement to [learn-examiner](learn-examiner.md).
+5. Pin down platform or venue, question source, time limit, format, and tools allowed. For example, a specified question bank and five minutes per live-coding question make practice concrete.
+6. Log the real goal, checked level, constraints, performance conditions, skips, and gaps. Separate checked knowledge from self-report.
 
 ## Avoid
-- Answering vague replies with a vague plan. If an answer is fuzzy ("some experience", "soon"), ask for specifics.
+- Making vague plans from vague replies. Ask for specifics.
 - Teaching during the interview.
 - Assuming the stated goal is the real goal.
-- Asking a long list of questions all at once.
+- Passing half-right or guessed checks, or inventing facts, figures, sources, or links. Say plainly when unsure.
 
 ## Hand-off
-Pass the profile to [learn-mapmaker](learn-mapmaker.md) to build the study plan. If success is a performed test (interview, talk, call), also hand off to [learn-sparring-partner](learn-sparring-partner.md) for the final practice stage. If it is a made thing, also hand off to [learn-checker](learn-checker.md).
+Pass the log to [learn-mapmaker](learn-mapmaker.md). If the level remains unclear, use [learn-examiner](learn-examiner.md) for placement first. Keep task conditions for later [learn-sparring-partner](learn-sparring-partner.md) rehearsal or [learn-checker](learn-checker.md) when work exists.
 
 Source: "How I Learn Complex Skills & Difficult Subjects So Fast with AI" by Nick Saraev (YouTube), https://www.youtube.com/watch?v=FSXHk4hMrY8
