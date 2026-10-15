@@ -5,7 +5,8 @@
  *   -e library/pi-extensions/persona-prototype.ts --persona-trace -p 'Inspect TASK.md'
  * With --no-extensions, also pass -e builtin:codemode (codemode ships with pi).
  * Optional: --persona-code-model gpt-6-sol --persona-base-model gpt-6.1-sol
- * Both routes default to the requested Sol model, with different thinking levels.
+ * Defaults differ on the wire: base=gpt-6.1-sol, code=gpt-6-sol (Codex only).
+ * --persona-auto-check runs the deterministic prerequisite without model cooperation.
  *
  * Native skills are instructions, not executable capabilities. This example owns
  * the advertised catalog, guards explicit skill commands and file access, preloads
@@ -52,24 +53,43 @@ A tool receipt proves execution of the check, not semantic compliance with this 
 export default function personaPrototype(pi: ExtensionAPI) {
   pi.registerFlag("persona-trace", { description: "Log persona decisions to stderr", type: "boolean", default: false });
   pi.registerFlag("persona-base-model", { description: "OpenAI Codex model for ordinary requests", type: "string", default: "gpt-6.1-sol" });
-  pi.registerFlag("persona-code-model", { description: "OpenAI Codex model for codemode follow-ups", type: "string", default: "gpt-6.1-sol" });
+  pi.registerFlag("persona-code-model", { description: "OpenAI Codex model for codemode follow-ups", type: "string", default: "gpt-6-sol" });
+  pi.registerFlag("persona-auto-check", { description: "Execute the deterministic prerequisite before each run", type: "boolean", default: false });
   const trace = (event: string, data: unknown) => {
     if (pi.getFlag("persona-trace")) console.error(`[persona:${event}] ${JSON.stringify(data)}`);
   };
 
-  // One generated native skill keeps the distributed artifact a single .ts file.
-  // Kept across /new and /resume; removed only when this extension is torn down.
-  const skillDir = mkdtempSync(join(tmpdir(), "sparks-persona-"));
-  const skillPath = join(skillDir, "SKILL.md");
-  writeFileSync(skillPath, SKILL, { mode: 0o600 });
-  const canonicalSkill = realpathSync(skillPath);
+  // No factory I/O: --help / --list-models load extensions without a session.
+  // /new, /resume and fork tear down this runtime and create another one.
+  let skillDir: string | undefined;
+  let skillPath: string | undefined;
   let checked = false;
   let nudged = false;
-
-  pi.on("resources_discover", () => ({ skillPaths: [skillPath] })); // Additive, NOT an allowlist.
+  let misconfigured = false;
+  const ensureSkill = () => {
+    if (!skillDir) skillDir = mkdtempSync(join(tmpdir(), "sparks-persona-"));
+    if (!skillPath) {
+      const path = join(skillDir, "SKILL.md");
+      writeFileSync(path, SKILL, { mode: 0o600 });
+      skillPath = realpathSync(path);
+      trace("skill-created", { path: skillPath });
+    }
+    return skillPath;
+  };
+  pi.on("resources_discover", () => ({ skillPaths: [ensureSkill()] })); // Additive, NOT an allowlist.
   pi.on("session_shutdown", (event) => {
-    if (event.reason === "quit" || event.reason === "reload") rmSync(skillDir, { recursive: true, force: true });
+    if (skillDir) rmSync(skillDir, { recursive: true, force: true });
+    trace("skill-removed", { reason: event.reason, path: skillPath });
+    skillDir = skillPath = undefined;
   });
+  // The tool and the opt-in model-independent path execute the same prerequisite.
+  const runCheck = (source: "tool" | "extension") => {
+    checked = true;
+    const receipt = { skill: SKILL_NAME, ran: true, source };
+    pi.appendEntry("persona-check", receipt);
+    trace("check", receipt);
+    return receipt;
+  };
 
   pi.registerVirtualModel({
     provider: "sparks",
@@ -102,20 +122,16 @@ export default function personaPrototype(pi: ExtensionAPI) {
     // Built-ins are direct-exposure tools: inactive means NOT callable in scripts.
     // Our two codemode-exposure tools remain callable without being declared.
     pi.setActiveTools(["codemode"]);
-    if (!pi.getActiveTools().includes("codemode")) {
-      throw new Error("Enable pi's built-in codemode extension (-e builtin:codemode when using -ne)");
-    }
     trace("active", pi.getActiveTools());
+    return pi.getActiveTools().includes("codemode");
   };
-  pi.on("session_start", activate);
+  pi.on("session_start", () => { activate(); });
   pi.on("before_agent_start", async (event, ctx) => {
-    activate();
     checked = false;
     nudged = false;
-    const router = ctx.modelRegistry.find("sparks", "persona-prototype");
-    if (!router || !await pi.setModel(router)) throw new Error("Cannot select persona router");
-    // Structured preamble replacement; cwd/context and tool schemas survive.
-    // For an EXACT whole prompt, return { systemPrompt: PERSONA } instead (Q1).
+    misconfigured = false;
+    // Apply policy before validating the loadout. Hook exceptions alone do NOT
+    // stop pi: fail closed with an explicit abort and a defensive refusal prompt.
     event.systemPromptOptions.customPrompt = PERSONA;
     event.systemPromptOptions.appendSystemPrompt = "";
     event.systemPromptOptions.skills = event.systemPromptOptions.skills.filter(
@@ -127,8 +143,27 @@ export default function personaPrototype(pi: ExtensionAPI) {
       "Use codemode tools.persona_read to load skills.\n" +
       formatSkillsForPrompt(event.systemPromptOptions.skills, "indirect");
     trace("skills", event.systemPromptOptions.skills.map((skill) => skill.name));
-    // Guaranteed delivery, not guaranteed obedience. No model tool call needed.
-    return { message: { customType: "persona-required-skill", content: `Required skill (references relative to ${skillDir}):\n${SKILL}`, display: false } };
+    try {
+      const router = ctx.modelRegistry.find("sparks", "persona-prototype");
+      if (!router || !await pi.setModel(router)) throw new Error("Cannot select persona router");
+      if (!activate()) throw new Error("Enable pi's built-in codemode extension (-e builtin:codemode when using -ne)");
+      if (!skillPath) throw new Error("Persona skill discovery did not complete");
+    } catch (error) {
+      misconfigured = true;
+      pi.setActiveTools([]);
+      console.error(`[persona:misconfigured] ${String(error)}`);
+      ctx.abort(); // pi 1.2.0 honors startup aborts before its first request.
+      return { systemPrompt: "Persona misconfigured. Refuse all work; do not call tools." };
+    }
+    if (pi.getFlag("persona-auto-check")) runCheck("extension");
+    // Guaranteed delivery, not obedience. Avoid accumulating full copies on
+    // repeated prompts; a fork that excludes the entry gets its own first copy.
+    const delivered = ctx.sessionManager.getBranch().some(
+      (entry) => entry.type === "custom_message" && entry.customType === "persona-required-skill",
+    );
+    if (event.messageType === "user" && !delivered) {
+      return { message: { customType: "persona-required-skill", content: `Required skill:\n${SKILL}`, display: false } };
+    }
   });
 
   pi.on("input", (event) => {
@@ -141,6 +176,7 @@ export default function personaPrototype(pi: ExtensionAPI) {
   pi.on("user_bash", () => ({ result: { output: "Persona blocks user shell escapes", exitCode: 1, cancelled: false, truncated: false } }));
   pi.on("tool_call", (event) => {
     trace("tool", { name: event.toolName, nested: !!event.parentToolCallId });
+    if (misconfigured) return { block: true, reason: "Persona misconfigured" };
     if (!["codemode", "persona_check", "persona_read"].includes(event.toolName)) {
       return { block: true, reason: "Tool is outside the persona allowlist" };
     }
@@ -157,10 +193,7 @@ export default function personaPrototype(pi: ExtensionAPI) {
     description: "Run the mandatory deterministic check; returns the allowed skill and a receipt. Call before persona_read.",
     parameters: Type.Object({}),
     async execute() {
-      checked = true;
-      const receipt = { skill: SKILL_NAME, ran: true };
-      pi.appendEntry("persona-check", receipt);
-      trace("check", receipt);
+      const receipt = runCheck("tool");
       return { content: [{ type: "text", text: `${JSON.stringify(receipt)}\n${SKILL}` }], details: receipt };
     },
   });
@@ -174,7 +207,7 @@ export default function personaPrototype(pi: ExtensionAPI) {
       const root = realpathSync(ctx.cwd);
       const path = realpathSync(resolve(root, args.path));
       const rel = relative(root, path);
-      if (path !== canonicalSkill && (rel === ".." || rel.startsWith("../") || rel.startsWith("..\\") || isAbsolute(rel) || /(^|[/\\])SKILL\.md$/i.test(path))) {
+      if (path !== skillPath && (rel === ".." || rel.startsWith("../") || rel.startsWith("..\\") || isAbsolute(rel) || /(^|[/\\])SKILL\.md$/i.test(path))) {
         throw new Error("Path is outside the persona file/skill policy");
       }
       const stat = statSync(path);
@@ -184,7 +217,7 @@ export default function personaPrototype(pi: ExtensionAPI) {
   });
 
   pi.on("agent_before_settle", (event) => {
-    if (!checked && !nudged && event.outcome === "completed") {
+    if (!misconfigured && !checked && !nudged && event.outcome === "completed") {
       nudged = true; // Bounded: never manufacture an infinite model loop.
       return {
         continue: true,
@@ -193,7 +226,7 @@ export default function personaPrototype(pi: ExtensionAPI) {
     }
   });
   pi.on("agent_settled", () => {
-    const audit = { checked, nudged, semanticCompliance: "not mechanically provable" };
+    const audit = { checked, nudged, misconfigured, semanticCompliance: "not mechanically provable" };
     pi.appendEntry("persona-audit", audit);
     trace("audit", audit);
   });
