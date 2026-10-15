@@ -89,6 +89,10 @@ A spark contributes to the streak **only** if its first judge response is `skip`
 
 The source is always word-for-word mineable. Build the full-coverage index from it before the first proposal. Adapt K sparks to the craft, the source content, and the user session.
 
+### Assembled answers
+
+In cases where agent wording in an answer coming from a transcript or user conversation is correct in meaning based on sanctioned quotable sources, it is permissible to assemble an equivalent answer using our quoting conventions from the same quotable sources and use that as an answer, even though it did not occur in the original transcript in that wording.
+
 ## Out of Scope
 
 How the judge integrates sparks into `sparks.json` is the judge's concern. This skill does not specify per-spark integration mechanics.
