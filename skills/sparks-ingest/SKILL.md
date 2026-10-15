@@ -89,6 +89,26 @@ A spark contributes to the streak **only** if its first judge response is `skip`
 
 The source is always word-for-word mineable. Build the full-coverage index from it before the first proposal. Adapt K sparks to the craft, the source content, and the user session.
 
+An ingestion session begins by collecting every source into one local reference dir: scrape web pages to files, transcribe videos, clone docs and code. That dir is the only allowed answer source and is what gets passed to the checker.
+
+## Answer Checker
+
+The judge runs `check_answer.py` on every proposal before judging:
+
+```sh
+skills/sparks-ingest/check_answer.py --sources <reference-dir> --json '<spark json>'   # or spark JSON on stdin; --json-out for machine output
+```
+
+- Questions are never checked.
+- Non-K answers contain only backtick-quoted spans and `[bracketed]` judge's notes, joined by whitespace or punctuation. Backticks and square brackets are delimiters, not separators; unclosed delimiters fail. Notes may contain nested square brackets. No attributions, no prose, no `From X:` lead-ins, no `(file.ts)`.
+- Each quote must appear in one regular text file of the reference dir after collapsing whitespace. Search is recursive; `.git`, symlinks, and binaries are excluded. No working-repo fallback or network lookup is allowed. A `…` inside a quote is a gap (pieces in order, same file); ASCII `...` is literal. Empty quotes and quotes containing only gaps fail.
+- Nested backticks: prefer Markdown double-backtick spans for template literals, for example ``` ``const x = `@${file}`;`` ```. A run of two or more backticks closes at the next run of exactly that length, regardless of source matches. Use a longer delimiter than any backtick run in the quote. One padding space at both ends is removed, as in Markdown, so ``` `` `@${file}` `` ``` quotes the template literal itself.
+- Legacy single-backtick spans use source-assisted parsing: the longest candidate whose body matches a source wins; if none matches, the nearest closing tick is used and the quote fails. Interior ticks must pair up: candidates are the first, third, fifth, etc. individual ticks after the opener, counting adjacent template/outer closing ticks separately. This avoids closing a quote on the next quote's opener. Thus a single-backtick span containing `@${file}` still works, but explicit double-backtick spans avoid ambiguity between multiple quotes.
+- Type K (case-insensitive): a single URL, Markdown link, or local path such as `docs/house/pi` passes without quote matching. Other K answers follow the same quote rules. Local paths report `exists: true/false` (absence does not fail link acceptance); relative paths resolve against the reference dir, absolute paths as written. The target is not read as an answer source.
+- Each quote reports PASS/FAIL and, on PASS, the matching file relative to the reference dir. Exit 0 means every item passed; 1 means a FAIL; 2 means invalid invocation or JSON input. `--json-out` reports the overall result and each quote, note, rejected text, or link as JSON.
+
+A checker FAIL means verdict `fix` or `reject` without hand-checking. The judge hand-judges only what the script can't: whether bracketed notes are accurate, whether the answer actually answers the question, and coverage.
+
 ## Out of Scope
 
 How the judge integrates sparks into `sparks.json` is the judge's concern. This skill does not specify per-spark integration mechanics.
