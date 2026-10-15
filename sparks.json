@@ -66,6 +66,18 @@
     "id": "e921473cb669ccc7"
   },
   {
+    "type": "k",
+    "question": "What is an encouraged test evaluation paradigm in this repository?",
+    "answer": "library/reels/2026-10-14-matt-pocock-mutation-testing.md",
+    "id": "49787c6006246988"
+  },
+  {
+    "type": "k",
+    "question": "What is Conway's law, which motivated the creation of spark?",
+    "answer": "library/reels/2026-10-14-ryan-peterman-conways-law.md",
+    "id": "50a1e3170a81610e"
+  },
+  {
     "type": "s",
     "question": "that task that comes from a prompt or a file, does that go in as the first user message, or does that go in as the system prompt of the sub-agent?",
     "answer": "``const initialArgs = files.map((file) => `@${file}`); if (prompts.length > 0) initialArgs.push(`Task:\\n${prompts.join(\"\\n\\n\")}`);`` `launchRun(metadata, initialArgs)` `pi [options] [--] [@files...] [messages...]` [The `@file` references and the `Task:` text land in the files and messages slots, not in a system prompt flag.]",
