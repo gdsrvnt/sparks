@@ -68,19 +68,19 @@
   {
     "type": "s",
     "question": "that task that comes from a prompt or a file, does that go in as the first user message, or does that go in as the system prompt of the sub-agent?",
-    "answer": "`const initialArgs = files.map((file) => `@${file}`); if (prompts.length > 0) initialArgs.push(`Task:\\n${prompts.join(\"\\n\\n\")}`);` then `launchRun(metadata, initialArgs)`. From pi CLI docs: `pi [options] [--] [@files...] [messages...]`. [The `@file` references and the `Task:` text land in the files and messages slots, not in a system prompt flag.]",
+    "answer": "``const initialArgs = files.map((file) => `@${file}`); if (prompts.length > 0) initialArgs.push(`Task:\\n${prompts.join(\"\\n\\n\")}`);`` `launchRun(metadata, initialArgs)` `pi [options] [--] [@files...] [messages...]` [The `@file` references and the `Task:` text land in the files and messages slots, not in a system prompt flag.]",
     "id": "66f0c4434eb60015"
   },
   {
     "type": "s",
     "question": "Using the default with CLI allows sub-agents to have sub-agents of their own?",
-    "answer": "`if (process.env.PI_SUBAGENT_RUN_DIR) fail(\"Nested subagents are disabled\");` The launch sets it: `\"env\", `PI_SUBAGENT_RUN_DIR=${metadata.runDir}`` from launchRun in shared.ts.",
+    "answer": "`if (process.env.PI_SUBAGENT_RUN_DIR) fail(\"Nested subagents are disabled\");` [The launch sets this environment variable.] `` \"env\", `PI_SUBAGENT_RUN_DIR=${metadata.runDir}` ``",
     "id": "ab5f8fdb827da3ae"
   },
   {
     "type": "s",
     "question": "…what's the CLI binary called? Subagent?",
-    "answer": "Clone into Pi's global extension directory and expose the CLI on `PATH`: `ln -s ../extensions/subagent/subagent.ts ~/.pi/agent/bin/subagent`. package.json: `\"bin\": { \"subagent\": \"./subagent.ts\" }`.",
+    "answer": "``Clone into Pi's global extension directory and expose the CLI on `PATH`:`` `ln -s ../extensions/subagent/subagent.ts ~/.pi/agent/bin/subagent` `\"bin\": { \"subagent\": \"./subagent.ts\" }`",
     "id": "90ce6fcd47380350"
   },
   {
@@ -92,13 +92,13 @@
   {
     "type": "s",
     "question": "…Does the flag accept a, uh, only a string as an argument, or does it accept a file path as well?",
-    "answer": "From pi's cli.md: `--system-prompt <text|path>` Replaces the default system prompt with text or the contents of an existing file. The raw string goes to `resolvePromptInput` in resource-loader.ts, which reads the file if the path exists: `if (existsSync(input)) { try { return stripBom(readFileSync(input, \"utf-8\"));`.",
+    "answer": "`--system-prompt <text|path>` `Replaces the default system prompt with text or the contents of an existing file.` [The raw string goes to this resolver, which reads the file if the path exists.] `resolvePromptInput` `if (existsSync(input)) { try { return stripBom(readFileSync(input, \"utf-8\"));`",
     "id": "f7d628b7a1cf3a98"
   },
   {
     "type": "s",
     "question": "…Is there… anywhere else… find everywhere that it's used to make sure that it doesn't try to use the pi coding agent dir of the sub-agent process.",
-    "answer": "Child: `const runDir = process.env.PI_SUBAGENT_RUN_DIR;` (index.ts). Parent: `function runDirForHandle(handle: string): string { … return join(getRunsDir(), handle);` (subagent.ts). Directory base: `return process.env.PI_CODING_AGENT_DIR || join(homedir(), \".pi\", \"agent\");` and `return join(getAgentDir(), \"subagents\");` (shared.ts).",
+    "answer": "[Child run directory] `const runDir = process.env.PI_SUBAGENT_RUN_DIR;` [Parent run-directory construction] `function runDirForHandle(handle: string): string { … return join(getRunsDir(), handle);` [Directory base] `return process.env.PI_CODING_AGENT_DIR || join(homedir(), \".pi\", \"agent\");` `return join(getAgentDir(), \"subagents\");`",
     "id": "1befe82bd869a662"
   },
   {
@@ -110,19 +110,19 @@
   {
     "type": "s",
     "question": "…What… parts have no [pi] invocation at all?",
-    "answer": "Usage: `subagent status <handle>` `subagent rename <handle> <name>` `subagent send <handle> [--follow-up] <message>` `subagent wait <handle> [--timeout <seconds>]` `subagent stop <handle>` `subagent list` (subagent.ts). The only pi launch is `launchRun(metadata, initialArgs);` (line 197, in spawn). Stop is tmux plus files: `spawnSync(\"tmux\", [\"kill-session\", \"-t\", metadata.tmuxSession], { stdio: \"ignore\" });` … `removeRunDir(metadata.runDir);`.",
+    "answer": "[These commands do not launch pi.] `subagent status <handle>` `subagent rename <handle> <name>` `subagent send <handle> [--follow-up] <message>` `subagent wait <handle> [--timeout <seconds>]` `subagent stop <handle>` `subagent list` [The only pi launch is in spawn.] `launchRun(metadata, initialArgs);` [Stop uses tmux and files.] `spawnSync(\"tmux\", [\"kill-session\", \"-t\", metadata.tmuxSession], { stdio: \"ignore\" });` … `removeRunDir(metadata.runDir);`",
     "id": "75d0dc868209343f"
   },
   {
     "type": "s",
     "question": "…if I wanted to extend the sub-agent CLI to support flags that the Pi CLI already has, but the sub-agent one currently doesn't map, example… dash dash system [prompt]…",
-    "answer": "`launchArgs?: string[];` (shared.ts). `const launchArgs: string[] = []; if (tools) launchArgs.push(\"--tools\", tools);` (subagent.ts). Stored as `launchArgs,` in metadata. Replayed as `...(metadata.launchArgs ?? []),` (shared.ts). Resume calls `launchRun(starting);` (index.ts).",
+    "answer": "`launchArgs?: string[];` `const launchArgs: string[] = []; if (tools) launchArgs.push(\"--tools\", tools);` [Stored in metadata.] `launchArgs,` [Replayed on launch.] `...(metadata.launchArgs ?? []),` [Resume] `launchRun(starting);`",
     "id": "0c8e18d42115bbc6"
   },
   {
     "type": "s",
     "question": "…Where does it try to send that? Does it send it to the parent's coding agent directory or to some local or, you know, global store? Where exactly does it send it?",
-    "answer": "`return process.env.PI_CODING_AGENT_DIR || join(homedir(), \".pi\", \"agent\");` and `return join(getAgentDir(), \"subagents\");` (shared.ts). `return join(runDir, \"metadata.json\");` and `return join(runDir, \"inbox\");` (shared.ts). `const sessionFile = join(runDir, \"session.jsonl\");` (subagent.ts).",
+    "answer": "`return process.env.PI_CODING_AGENT_DIR || join(homedir(), \".pi\", \"agent\");` `return join(getAgentDir(), \"subagents\");` `return join(runDir, \"metadata.json\");` `return join(runDir, \"inbox\");` `const sessionFile = join(runDir, \"session.jsonl\");`",
     "id": "efcad986be469d29"
   }
 ]
