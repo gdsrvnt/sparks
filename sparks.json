@@ -70,5 +70,11 @@
     "question": "What is an encouraged test evaluation paradigm in this repository?",
     "answer": "library/reels/2026-10-14-matt-pocock-mutation-testing.md",
     "id": "49787c6006246988"
+  },
+  {
+    "type": "k",
+    "question": "What is Conway's law, which motivated the creation of spark?",
+    "answer": "library/reels/2026-10-14-ryan-peterman-conways-law.md",
+    "id": "50a1e3170a81610e"
   }
 ]
