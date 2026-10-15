@@ -89,6 +89,25 @@ A spark contributes to the streak **only** if its first judge response is `skip`
 
 The source is always word-for-word mineable. Build the full-coverage index from it before the first proposal. Adapt K sparks to the craft, the source content, and the user session.
 
+An ingestion session begins by collecting every source into one local reference dir: scrape web pages to files, transcribe videos, clone docs and code. That dir is the only allowed answer source and is what gets passed to the checker.
+
+## Answer Checker
+
+The judge runs `check_answer.py` on every proposal before judging:
+
+```sh
+skills/sparks-ingest/check_answer.py --sources <reference-dir> --json '<spark json>'   # or spark JSON on stdin; --json-out for machine output
+```
+
+- Questions are never checked.
+- Answers contain only backtick-quoted spans and `[bracketed]` judge's notes, joined by spaces or `. , ; : …`. No attributions, no prose, no `From X:` lead-ins, no `(file.ts)`.
+- Each quote must appear in one file of the reference dir after collapsing whitespace. A `…` inside a quote is a gap (pieces in order, same file); ASCII `...` is literal.
+- Nested backticks: wrap code that contains backticks in a double-backtick span (``` `` `@${file}` `` ```). For single-backtick spans the checker picks the longest span whose text is found in the sources, else the nearest closing backtick.
+- Type K: an answer that is a single link (URL, markdown link, or local path such as `docs/house/pi`) passes without quote matching; a local path must exist under the reference dir or `--repo-root`.
+- Exit 0 means every item passed; 1 means a FAIL.
+
+A checker FAIL means verdict `fix` or `reject` without hand-checking. The judge hand-judges only what the script can't: whether bracketed notes are accurate, whether the answer actually answers the question, and coverage.
+
 ## Out of Scope
 
 How the judge integrates sparks into `sparks.json` is the judge's concern. This skill does not specify per-spark integration mechanics.
