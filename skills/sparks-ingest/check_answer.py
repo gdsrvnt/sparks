@@ -1,188 +1,239 @@
 #!/usr/bin/env python3
-"""Mechanical checker for proposed spark answers (stdlib only).
+"""Check answer provenance against one ingestion run's local reference directory.
 
-Usage:
-  check_answer.py --sources <dir> --json '<spark json>' [--repo-root <dir>] [--json-out]
-  echo '<spark json>' | check_answer.py --sources <dir>
-
-Rules (see SKILL.md):
-- The question is never checked.
-- Type K: an answer that is a single link (URL, markdown link, or local path)
-  passes without quote matching; local paths are checked for existence.
-- Otherwise the answer may contain only backtick-quoted spans, [bracketed]
-  notes, and separators (whitespace . , ; :). Anything else FAILs.
-- Each quote must appear in one file under --sources after collapsing
-  whitespace. A unicode ellipsis inside a quote is a gap (pieces in order,
-  same file). ASCII "..." is literal.
-- Backticks: a run of N backticks opens a span closed by the next run of
-  exactly N backticks (Markdown). When several closers are possible (nested
-  template literals inside single-backtick spans), the longest span whose
-  text is found in the sources wins; if none is found, the nearest closer.
-- A bare ellipsis between quotes counts as a separator.
-Exit 0 if everything passes, 1 otherwise, 2 on usage errors.
+Accept spark JSON via --json or stdin; --json-out emits machine-readable results.
+Questions are ignored. See SKILL.md for syntax, backtick rules, and judge duties.
+Exit codes: 0 = pass, 1 = fail, 2 = invalid invocation/input.
 """
-import argparse, json, os, re, sys
 
-SEP = set(" \t\r\n.,;:\u2026")
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import sys
+import unicodedata
+from urllib.parse import urlsplit
+
 WS = re.compile(r"\s+")
 ELL = "\u2026"
-URL = re.compile(r"^(https?://\S+|<https?://\S+>)$")
-MDLINK = re.compile(r"^\[[^\]]*\]\(([^)\s]+)\)$")
-PATH = re.compile(r"^`?([\w.\-~]+(?:/[\w.\-]+)+/?|[\w\-]+\.\w+)`?$")
+MDLINK = re.compile(r"^\[(?:[^\[\]\\]|\\.)*\]\(\s*(<[^<>\n]+>|[^\s()]+)\s*\)$")
 
 
-def norm(s):
-    return WS.sub(" ", s).strip()
+def norm(text):
+    return WS.sub(" ", text).strip()
 
 
 def load_sources(root):
-    out = []
-    for d, dirs, files in os.walk(root):
-        dirs[:] = [x for x in dirs if x != ".git"]
-        for f in files:
-            p = os.path.join(d, f)
-            if not os.path.isfile(p) or os.path.islink(p):
+    """Read only regular, non-symlink text files; never traverse .git."""
+    sources = []
+    for directory, dirs, files in os.walk(root, followlinks=False):
+        dirs[:] = sorted(d for d in dirs if d != ".git")
+        for name in sorted(files):
+            path = Path(directory) / name
+            if name == ".git" or path.is_symlink() or not path.is_file():
                 continue
             try:
-                b = open(p, "rb").read()
-            except OSError:
+                # Strict decoding and control-byte rejection avoid accepting
+                # binary fragments, including NULs past an initial read buffer.
+                text = path.read_bytes().decode("utf-8-sig")
+            except (OSError, UnicodeError):
                 continue
-            if b"\0" in b[:8192]:
+            if any(unicodedata.category(c) == "Cc" and not c.isspace() for c in text):
                 continue
-            out.append((os.path.relpath(p, root), norm(b.decode("utf-8", "replace"))))
-    return out
+            sources.append((os.path.relpath(path, root), norm(text)))
+    return sources
 
 
 def find(quote, sources):
-    pieces = [norm(x) for x in quote.split(ELL)]
-    pieces = [x for x in pieces if x]
+    pieces = [norm(piece) for piece in quote.split(ELL) if norm(piece)]
     if not pieces:
         return None
     for name, text in sources:
         pos = 0
-        for pc in pieces:
-            i = text.find(pc, pos)
-            if i < 0:
+        for piece in pieces:
+            start = text.find(piece, pos)
+            if start < 0:
                 break
-            pos = i + len(pc)
+            pos = start + len(piece)
         else:
             return name
     return None
 
 
-def tokenize(ans, is_found=lambda t: False):
-    """Split an answer into (kind, text) items, kind in quote|note|text.
+def separator(char):
+    # Delimiters are structural, not separators; unmatched ones must fail.
+    return char.isspace() or (char not in "`[]" and unicodedata.category(char).startswith("P"))
 
-    A run of N backticks opens a span; candidate closers are later runs of
-    exactly N backticks. The longest candidate whose body is found in the
-    sources wins; if none is found, the nearest closer is used.
+
+def tokenize(answer, is_found=lambda text: False):
+    """Yield quote/note/text items.
+
+    Multi-backtick spans close at the next run of exactly the opening length,
+    independently of source contents. Single-backtick spans retain legacy
+    template-literal support: choose the longest source-matching candidate
+    with balanced interior ticks (including adjacent closing ticks). If none
+    matches, use the nearest tick so the failed quote is reported.
     """
-    out, i, n = [], 0, len(ans)
-    while i < n:
-        c = ans[i]
-        if c in SEP:
-            i += 1
-        elif c == "`":
-            j = i
-            while j < n and ans[j] == "`":
-                j += 1
-            k = j - i
-            cands = [j + m.start() for m in re.finditer(r"`+", ans[j:]) if len(m.group()) == k]
-            if not cands:
-                out.append(("text", ans[i:].strip()))
+    items = []
+    i = 0
+    while i < len(answer):
+        if answer[i] == "`":
+            start = i
+            while i < len(answer) and answer[i] == "`":
+                i += 1
+            width = i - start
+            if width == 1:
+                # An outer closer follows zero or more paired interior ticks.
+                # Never mistake the next span's opener for this span's closer.
+                candidates = [m.start() for m in re.finditer("`", answer[i:])][::2]
+            else:
+                candidates = [m.start() for m in re.finditer(r"`+", answer[i:]) if len(m.group()) == width]
+            candidates = [i + offset for offset in candidates]
+            if not candidates:
+                items.append(("text", answer[start:]))
                 break
 
-            def body(e):
-                t = ans[j:e]
-                if k > 1 and t.startswith(" ") and t.endswith(" ") and t.strip():
-                    t = t[1:-1]
-                return t
+            def body(end):
+                text = answer[i:end]
+                # Markdown padding permits a literal backtick at either edge.
+                if width > 1 and text.startswith(" ") and text.endswith(" ") and text.strip():
+                    text = text[1:-1]
+                return text
 
-            end = next((e for e in reversed(cands) if is_found(body(e))), cands[0])
-            out.append(("quote", body(end)))
-            i = end + k
-        elif c == "[" and "]" in ans[i:]:
-            e = ans.index("]", i)
-            out.append(("note", ans[i + 1:e]))
-            i = e + 1
+            end = candidates[0]
+            if width == 1:
+                end = next((end for end in reversed(candidates) if is_found(body(end))), end)
+            items.append(("quote", body(end)))
+            i = end + width
+        elif answer[i] == "[":
+            start = i
+            depth = 1
+            i += 1
+            while i < len(answer) and depth:
+                if answer[i] == "[":
+                    depth += 1
+                elif answer[i] == "]":
+                    depth -= 1
+                i += 1
+            if depth:
+                items.append(("text", answer[start:]))
+            else:
+                items.append(("note", answer[start + 1:i - 1]))
         else:
-            e = i
-            while e < n and ans[e] not in "`[":
-                e += 1
-            out.append(("text", ans[i:e].strip()))
-            i = e
-    return out
+            start = i
+            i += 1
+            while i < len(answer) and answer[i] not in "`[":
+                i += 1
+            text = answer[start:i]
+            if not all(separator(char) for char in text):
+                items.append(("text", text.strip()))
+    return items
 
 
-def check_link(ans, roots):
-    a = ans.strip()
-    m = MDLINK.match(a)
-    target = m.group(1) if m else a
-    if URL.match(target):
+def check_link(answer, sources_dir):
+    target = answer.strip()
+    match = MDLINK.fullmatch(target)
+    if match:
+        target = match.group(1)
+    if target.startswith("<") and target.endswith(">"):
+        target = target[1:-1]
+    try:
+        url = urlsplit(target)
+    except ValueError:
+        return None
+    if not any(c.isspace() for c in target) and url.scheme and (url.netloc or url.scheme == "mailto"):
         return {"kind": "link", "text": target, "ok": True, "where": "url"}
-    if PATH.match(target):
-        p = target.strip("`")
-        for r in roots:
-            if r and os.path.exists(os.path.join(r, p)):
-                return {"kind": "link", "text": p, "ok": True, "where": os.path.join(r, p)}
-        return {"kind": "link", "text": p, "ok": False, "where": "path not found"}
-    return None
+    # Backtick-wrapped local paths are common in existing sparks.json files.
+    quoted = re.fullmatch(r"(`+)(.*?)\1", target)
+    if quoted:
+        target = quoted.group(2).strip()
+    if not target or any(c in target for c in "\n\r\x00`[]"):
+        return None
+    if not (match or quoted) and any(c.isspace() for c in target):
+        return None
+    # An explicit path, filename, or existing bare directory is a local link;
+    # arbitrary prose must still take the quote-checking path.
+    try:
+        path = Path(target).expanduser()
+    except RuntimeError:  # Unknown ~user: still report a missing local target.
+        path = Path(target)
+    resolved = path if path.is_absolute() else Path(sources_dir) / path
+    try:
+        exists = resolved.exists()
+    except OSError:
+        exists = False
+    if not ("/" in target or re.fullmatch(r"[^\s/]+\.[^\s/]+", target) or exists):
+        return None
+    return {"kind": "link", "text": target, "ok": True,
+            "where": str(resolved), "exists": exists}
 
 
-def check(spark, sources_dir, repo_root=None):
-    ans = spark.get("answer") or ""
+def check(spark, sources_dir):
+    answer = spark.get("answer", "")
+    if not isinstance(answer, str):
+        return False, [{"kind": "text", "text": "(answer must be a string)", "ok": False, "where": None}]
     if str(spark.get("type", "")).upper() == "K":
-        r = check_link(ans, [sources_dir, repo_root])
-        if r:
-            return r["ok"], [r]
+        link = check_link(answer, sources_dir)
+        if link:
+            return True, [link]
     sources = load_sources(sources_dir)
     memo = {}
-    def found(t):
-        if t not in memo:
-            memo[t] = find(t, sources)
-        return memo[t]
+
+    def found(text):
+        if text not in memo:
+            memo[text] = find(text, sources)
+        return memo[text]
+
     items = []
-    for kind, text in tokenize(ans, lambda t: bool(found(t))):
-        if kind == "quote":
-            w = found(text)
-            items.append({"kind": "quote", "text": text, "ok": bool(w), "where": w})
-        elif kind == "note":
-            items.append({"kind": "note", "text": text, "ok": True, "where": None})
-        elif text:
-            items.append({"kind": "text", "text": text, "ok": False, "where": None})
+    for kind, text in tokenize(answer, lambda text: found(text) is not None):
+        where = found(text) if kind == "quote" else None
+        items.append({"kind": kind, "text": text,
+                      "ok": kind == "note" or (kind == "quote" and where is not None), "where": where})
     if not items:
         items = [{"kind": "text", "text": "(empty answer)", "ok": False, "where": None}]
-    return all(x["ok"] for x in items), items
+    return all(item["ok"] for item in items), items
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--sources", required=True)
-    ap.add_argument("--json", dest="spark")
-    ap.add_argument("--repo-root")
-    ap.add_argument("--json-out", action="store_true")
-    a = ap.parse_args(argv)
-    if not os.path.isdir(a.sources):
-        print(f"sources dir not found: {a.sources}", file=sys.stderr)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--sources", required=True)
+    parser.add_argument("--json", dest="spark", help="spark JSON (defaults to stdin)")
+    parser.add_argument("--json-out", action="store_true")
+    args = parser.parse_args(argv)
+    if not os.path.isdir(args.sources):
+        print(f"sources dir not found: {args.sources}", file=sys.stderr)
         return 2
     try:
-        spark = json.loads(a.spark if a.spark is not None else sys.stdin.read())
-    except json.JSONDecodeError as e:
-        print(f"bad spark json: {e}", file=sys.stderr)
+        spark = json.loads(args.spark if args.spark is not None else sys.stdin.read())
+    except json.JSONDecodeError as error:
+        print(f"bad spark json: {error}", file=sys.stderr)
         return 2
-    ok, items = check(spark, a.sources, a.repo_root)
-    if a.json_out:
-        print(json.dumps({"slug": spark.get("title-slug"), "pass": ok, "items": items}, indent=2))
+    if not isinstance(spark, dict):
+        print("spark JSON must be an object", file=sys.stderr)
+        return 2
+    ok, items = check(spark, args.sources)
+    if args.json_out:
+        print(json.dumps({"slug": spark.get("title-slug"), "id": spark.get("id"),
+                          "pass": ok, "items": items}, ensure_ascii=False, indent=2))
     else:
-        for x in items:
-            if x["kind"] == "note":
-                print(f"NOTE  [{x['text']}] (hand-judge)")
+        for item in items:
+            if item["kind"] == "note":
+                print(f"NOTE  [{item['text']}] (hand-judge)")
                 continue
-            tag = "PASS" if x["ok"] else "FAIL"
-            why = {"quote": f"found in {x['where']}" if x["ok"] else "not found in sources",
-                   "text": "text outside quotes/brackets", "link": x["where"]}[x["kind"]]
-            t = x["text"] if len(x["text"]) < 100 else x["text"][:97] + "..."
-            print(f"{tag}  {x['kind']}: {t!r} -- {why}")
+            tag = "PASS" if item["ok"] else "FAIL"
+            if item["kind"] == "quote":
+                why = f"found in {item['where']}" if item["ok"] else "not found in sources"
+            elif item["kind"] == "link":
+                why = item["where"]
+                if "exists" in item:
+                    why += f" (exists: {str(item['exists']).lower()})"
+            else:
+                why = "text outside quotes/brackets"
+            text = item["text"]
+            if len(text) > 100:
+                text = text[:97] + "..."
+            print(f"{tag}  {item['kind']}: {text!r} -- {why}")
         print("OVERALL", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 
