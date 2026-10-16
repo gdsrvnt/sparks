@@ -388,8 +388,10 @@ Calls exactly these four commands, non-interactively and in order:
   herdr agent list
 Never runs bare herdr, starts a TUI, attaches, or prompts.
 Exits nonzero if herdr is missing or not running. A failed snapshot leaves
-previous inventory intact. Each call has a 30-second timeout, overridden by
-SPARKS_HERDR_TIMEOUT (a positive finite number of seconds).
+previous inventory intact. An agent herdr lists without a name is not stored
+in agents (its pane still is); each one gets a warning line on stderr. Each
+call has a 30-second timeout, overridden by SPARKS_HERDR_TIMEOUT (a positive
+finite number of seconds).
 
 Database path: --db, else SPARKS_HERDR_DB, else
 $XDG_DATA_HOME/sparks/herdr-state.sqlite when XDG_DATA_HOME is non-empty,
@@ -399,6 +401,8 @@ exit status: 0 snapshot committed; 1 failure; 2 usage error.
 """
 
 # In schema order. "id" is a required, non-empty string; other fields are nullable.
+# Exception: an agent's name may be missing, null, or empty (herdr reports such
+# agents). name is the agents primary key, so those rows are skipped with a warning.
 # Nested column prefixes map to keys in agent_session and scroll objects.
 HERDR_COLUMNS = {
     "workspace": (
@@ -475,8 +479,10 @@ def _herdr_not_running(stdout: str, stderr: str) -> bool:
     ))
 
 
-def _validate_herdr_rows(group: str, response: object) -> list[tuple]:
-    """Validate the envelope and all rows, including values SQLite cannot bind."""
+def _validate_herdr_rows(group: str, response: object, warnings: list[str] | None = None) -> list[tuple]:
+    """Validate the envelope and all rows, including values SQLite cannot bind.
+
+    A fully valid agent row without a name is left out and described in warnings."""
     table = f"{group}s"
     if not isinstance(response, dict) or not isinstance(response.get("result"), dict):
         raise ValueError("expected an object with a result object")
@@ -507,7 +513,9 @@ def _validate_herdr_rows(group: str, response: object) -> list[tuple]:
                     field = column[len(nested) + 1:]
                     break
             value = source.get(field)
-            if kind == "id":
+            if group == "agent" and column == "name" and value in (None, ""):
+                value = None  # unnamed: checked like any row, then skipped below
+            elif kind == "id":
                 if not isinstance(value, str) or not value:
                     raise ValueError(f"{where}.{column}: expected a non-empty string")
             elif value is not None:
@@ -519,20 +527,26 @@ def _validate_herdr_rows(group: str, response: object) -> list[tuple]:
                 if kind == "bool":
                     value = int(value)
             values.append(value)
-        if values[0] in keys:
-            raise ValueError(f"{where}: duplicate {HERDR_COLUMNS[group][0][0]}")
-        keys.add(values[0])
+        unnamed = values[0] is None
+        if not unnamed:
+            if values[0] in keys:
+                raise ValueError(f"{where}: duplicate {HERDR_COLUMNS[group][0][0]}")
+            keys.add(values[0])
         if group == "agent":
             if values[1] in agent_panes:
                 raise ValueError(f"{where}: duplicate pane_id")
             agent_panes.add(values[1])
         raw = json.dumps(obj, ensure_ascii=False, allow_nan=False)
         raw.encode("utf-8")  # Reject lone surrogates before creating/opening the database.
+        if unnamed:
+            if warnings is not None:
+                warnings.append(f"{where}: no name, not stored (pane {_show(values[1])})")
+            continue
         rows.append((*values, raw))
     return rows
 
 
-def _collect_herdr(timeout: float) -> dict[str, list[tuple]]:
+def _collect_herdr(timeout: float, warnings: list[str]) -> dict[str, list[tuple]]:
     executable = shutil.which("herdr")
     if executable is None:
         raise SnapshotError("herdr: command not found")
@@ -557,7 +571,9 @@ def _collect_herdr(timeout: float) -> dict[str, list[tuple]]:
             raise SnapshotError(f"{subject}: {_snapshot_reason(reason)}")
         try:
             response = _parse(result.stdout, subject)
-            inventory[group] = _validate_herdr_rows(group, response)
+            skipped: list[str] = []
+            inventory[group] = _validate_herdr_rows(group, response, skipped)
+            warnings.extend(f"{subject}: {_snapshot_reason(text)}" for text in skipped)
         except Rejected as exc:
             raise SnapshotError(f"{subject}: {_snapshot_reason(exc.problem)}") from exc
         except (ValueError, RecursionError) as exc:
@@ -778,8 +794,12 @@ def snapshot(db: str | None = None) -> str:
     """Fetch and validate everything before any filesystem or database write."""
     timeout = _herdr_timeout()
     path = _snapshot_path(db)
-    inventory = _collect_herdr(timeout)
+    warnings: list[str] = []
+    inventory = _collect_herdr(timeout, warnings)
     captured_at = _write_snapshot(path, inventory)
+    # After the commit, so a failed snapshot still has exactly one stderr line.
+    for warning in warnings:
+        _say(sys.stderr, f"sparks: warning: {warning}\n")
     counts = " ".join(f"{group}s={len(inventory[group])}" for group in HERDR_COLUMNS)
     return f"snapshot {captured_at} {counts} db={_show(path)}"
 

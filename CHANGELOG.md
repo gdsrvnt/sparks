@@ -27,6 +27,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Renamed `skills/use-herdr/` to `skills/herdr-operations/` (frontmatter `name: herdr-operations`). Updated references in `skills/sparks-postcall/SKILL.md` and `README.md`.
 - `sparks.schema.json`: `type` must be one of `S`, `P`, `A`, `R`, or `K`. `sparks.json`, `spark_id.py`, and `bin/sparks` follow that shape.
 
+### Fixed
+
+- `sparks herdr snapshot` no longer fails the whole snapshot with `agents[<i>].name: expected a non-empty string` when herdr (0.9.5) lists an agent without a name. Such an agent is left out of `agents`, because `name` is that table's primary key. Its row is still fully validated, and its pane is still stored in `panes`. The command prints one `sparks: warning:` stderr line per skipped agent. A non-string name and every other identity check still reject the snapshot.
+
 ### Removed
 
 - `skills/teach/`, with its `THIRD_PARTY_NOTICES.md` entry. Parked on branch `teach-rework` for rework before re-merging ([#51](https://github.com/gdsrvnt/sparks/issues/51)). Findings from [Discussion #45](https://github.com/gdsrvnt/sparks/discussions/45): depends on nonexistent `unslop`, calls `how`/`why` with model invocation disabled, asks `why` for a narrow run it does not allow.

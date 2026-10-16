@@ -1400,6 +1400,8 @@ def test_herdr_invalid_envelopes_never_write(fake_herdr, existing, group, stdout
 ])
 @pytest.mark.parametrize("value", [DROP, None, "", 1, False], ids=["missing", "null", "empty", "int", "bool"])
 def test_herdr_all_identity_fields_are_required_nonempty_strings(saved_snapshot, table, field, value):
+    if (table, field) == ("agents", "name") and value in (DROP, None, ""):
+        pytest.skip("an unnamed agent is skipped, not rejected: see the unnamed-agent tests")
     fake, before = saved_snapshot
     rows = herdr_rows()
     if value is DROP:
@@ -1408,6 +1410,70 @@ def test_herdr_all_identity_fields_are_required_nonempty_strings(saved_snapshot,
         rows[table][0][field] = value
     fake.respond(rows)
     assert_invalid_herdr_rows(fake, table, before)
+
+
+def unnamed_agent_rows(name):
+    """Fixture rows plus a third agent, and its pane, that herdr reports without a name."""
+    rows = herdr_rows()
+    pane = {**copy.deepcopy(rows["panes"][0]), "pane_id": "w3:pU", "terminal_id": "term_u"}
+    agent = {**copy.deepcopy(rows["agents"][0]), "pane_id": "w3:pU", "terminal_id": "term_u"}
+    if name is DROP:
+        del agent["name"]
+    else:
+        agent["name"] = name
+    rows["panes"].append(pane)
+    rows["agents"].append(agent)
+    return rows
+
+
+@pytest.mark.parametrize("name", [DROP, None, ""], ids=["missing", "null", "empty"])
+@pytest.mark.parametrize("existing", [False, True])
+def test_herdr_unnamed_agent_is_skipped_with_a_warning_not_a_failed_snapshot(fake_herdr, existing, name):
+    # herdr 0.9.5 lists an agent with no name key; that row once aborted the whole snapshot.
+    if existing:
+        fake_herdr.seed()
+    rows = unnamed_agent_rows(name)
+    fake_herdr.respond(rows)
+    result = fake_herdr.run()
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == "sparks: warning: herdr agent list: agents[2]: no name, not stored (pane w3:pU)\n"
+    stored = {**rows, "agents": rows["agents"][:2]}
+    snapshot = assert_snapshot_entities(fake_herdr.db, stored)
+    assert result.stdout == (
+        f"snapshot {snapshot['captured_at']} workspaces=3 tabs=4 panes=5 agents=2 db={fake_herdr.db}\n"
+    )
+    fake_herdr.assert_calls()
+
+
+def test_herdr_agent_that_loses_its_name_is_pruned(saved_snapshot):
+    fake, _ = saved_snapshot
+    rows = herdr_rows()
+    del rows["agents"][0]["name"]
+    fake.respond(rows)
+    result = fake.run()
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == "sparks: warning: herdr agent list: agents[0]: no name, not stored (pane w3:pX)\n"
+    assert_snapshot_entities(fake.db, {**rows, "agents": rows["agents"][1:]})
+
+
+@pytest.mark.parametrize(("field", "value"), [("pane_id", DROP), ("tab_id", ""), ("revision", "2")])
+def test_herdr_unnamed_agent_row_is_still_validated(saved_snapshot, field, value):
+    fake, before = saved_snapshot
+    rows = unnamed_agent_rows(DROP)
+    if value is DROP:
+        del rows["agents"][2][field]
+    else:
+        rows["agents"][2][field] = value
+    fake.respond(rows)
+    assert_invalid_herdr_rows(fake, "agents", before)
+
+
+def test_herdr_unnamed_agent_cannot_share_a_named_agents_pane(saved_snapshot):
+    fake, before = saved_snapshot
+    rows = unnamed_agent_rows(DROP)
+    rows["agents"][2]["pane_id"] = rows["agents"][0]["pane_id"]
+    fake.respond(rows)
+    assert_invalid_herdr_rows(fake, "agents", before)
 
 
 @pytest.mark.parametrize("table", HERDR_TABLES)

@@ -31,7 +31,7 @@ herdr is a terminal multiplexer for coding agents. It organizes **workspaces** (
 
 ## Shared herdr state
 
-Agents that share a machine share one local SQLite database of herdr state: every workspace, tab, pane, and agent, and the status of each agent. `sparks herdr snapshot` (the `bin/sparks` script in this repository) refreshes it. The command runs `herdr workspace list`, `herdr tab list`, `herdr pane list`, and `herdr agent list`. It never runs bare `herdr`.
+Agents that share a machine share one local SQLite database of herdr state: every workspace, tab, pane, and agent, and the status of each agent. `sparks herdr snapshot` (the `bin/sparks` script in this repository) refreshes it. The command runs `herdr workspace list`, `herdr tab list`, `herdr pane list`, and `herdr agent list`. It never runs bare `herdr`. An agent herdr lists without a name is left out of `agents` with a `sparks: warning:` stderr line; its pane is still in `panes`.
 
 The database path is `--db`, or `SPARKS_HERDR_DB`, or otherwise `$XDG_DATA_HOME/sparks/herdr-state.sqlite` (`~/.local/share/sparks/herdr-state.sqlite` when `XDG_DATA_HOME` is unset). On a shared machine, leave the path at that default, or set `SPARKS_HERDR_DB` to the one path the user named. Do not invent a second file. Do not commit the database.
 

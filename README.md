@@ -84,6 +84,8 @@ snapshot <captured_at> workspaces=<n> tabs=<n> panes=<n> agents=<n> db=<path>
 
 The database is current state, not a history log. A failed run leaves the previous file unchanged. Exit 1 reports a snapshot failure (including herdr missing or not running) with one stderr line; exit 2 reports a usage error.
 
+herdr can list an agent with no name. `name` is the `agents` primary key, so that agent is not stored in `agents` and does not count toward `agents=<n>`. Its pane is still stored in `panes`, with the pane's `agent` and `agent_status`. The snapshot still succeeds and prints one `sparks: warning:` stderr line for each such agent, naming its pane.
+
 ### `sparks herdr query`
 
 `bin/sparks herdr query [--db <path>] [--status <status>] [--workspace <id>] [--tab <id>] [--name <name>] [--raw] [summary|workspaces|tabs|panes|agents]` reads that database and prints a short tab-separated table. It does not call herdr and does not write the database. The default view is `summary`.
